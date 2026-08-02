@@ -25,10 +25,11 @@ async function handleContentFactory(interaction) {
   const type = interaction.customId.replace('content_', '');
   const meta = CONTENT_LABELS[type];
 
-  if (!meta) return interaction.reply({ content: '❌ Type de contenu inconnu.', ephemeral: true });
+  await interaction.deferReply({ ephemeral: true });
+
+  if (!meta) return interaction.editReply({ content: '❌ Type de contenu inconnu.' });
 
   if (type === 'sms') {
-    await interaction.deferReply({ ephemeral: true });
     return handleSMSRequest(interaction);
   }
 
@@ -69,18 +70,17 @@ async function handleContentFactory(interaction) {
             .addOptions(limitedIdOptions)
         );
         
-        return interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+        return interaction.editReply({ embeds: [embed], components: [row] });
       }
     } else {
       if (!va) {
-        return interaction.reply({ content: '❌ Tu n\'es enregistré comme VA sur aucun salon.', ephemeral: true });
+        return interaction.editReply({ content: '❌ Tu n\'es enregistré comme VA sur aucun salon.' });
       }
-      return interaction.reply({ content: `❌ Ton compte IG ou Profile ID n'est pas configuré. Demande à un manager d'utiliser \`/acc\` dans ton salon.`, ephemeral: true });
+      return interaction.editReply({ content: `❌ Ton compte IG ou Profile ID n'est pas configuré. Demande à un manager d'utiliser \`/acc\` dans ton salon.` });
     }
   }
 
   if (type.startsWith('text')) {
-    await interaction.deferReply({ ephemeral: true });
     return handleTextRequest(interaction, type, meta);
   }
 
@@ -103,7 +103,7 @@ async function handleContentFactory(interaction) {
       ])
   );
 
-  await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+  await interaction.editReply({ embeds: [embed], components: [row] });
 }
 
 /**
