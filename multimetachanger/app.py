@@ -1154,7 +1154,7 @@ def require_license():
         return redirect(url_for('license_page'))
 
 if __name__ == '__main__':
-    port = find_available_port(5000)
+    port = 5000
     print("--------------------------------------------------")
     print(" Lanceur de serveur Flask pour MultiMetaChanger GUI")
     print(f" L'interface est disponible sur http://127.0.0.1:{port}")
