@@ -23,7 +23,9 @@ RUN pip install --no-cache-dir -r multimetachanger/requirements.txt
 COPY package*.json ./
 RUN npm install
 
-# Copy all source code (Make sure .dockerignore or .gitignore is set correctly)
+# Cache bust - force rebuild of code layer
+ARG CACHEBUST=2
+# Copy all source code
 COPY . .
 
 # Expose ports
