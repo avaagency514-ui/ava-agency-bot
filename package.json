@@ -1,0 +1,24 @@
+{
+  "name": "ava-agency-bot",
+  "version": "1.0.0",
+  "description": "AVA Agency Discord Bot — VA Management System",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "deploy": "node deploy-commands.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "axios": "^1.7.2",
+    "cheerio": "^1.0.0",
+    "discord.js": "^14.15.0",
+    "dotenv": "^16.4.5",
+    "form-data": "^4.0.0",
+    "googleapis": "^140.0.1",
+    "node-cron": "^3.0.3"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

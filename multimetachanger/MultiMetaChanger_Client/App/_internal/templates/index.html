@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MultiMetaChanger v2.0 - Gestionnaire de Métadonnées</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="background-glow">
+        <div class="glow-orb orb-1"></div>
+        <div class="glow-orb orb-2"></div>
+    </div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo-area">
+                <span class="logo-icon">🛠️</span>
+                <div class="logo-text">
+                    <h1>MultiMetaChanger</h1>
+                    <span class="tagline">Anti-détection et anonymisation de fichiers pour multicomptes</span>
+                </div>
+            </div>
+            <div class="system-status" id="system-status">
+                <span class="status-badge loading">Vérification du système...</span>
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-logout" style="margin-left: 10px; background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); color: #fca5a5;">Déconnexion</button>
+            </div>
+        </header>
+
+        <!-- Main Dashboard -->
+        <main class="dashboard-grid">
+            
+            <!-- Left Panel: Configuration -->
+            <section class="panel glass-panel config-panel">
+
+                <!-- Mode Toggle -->
+                <div class="mode-toggle-bar">
+                    <button class="mode-btn active" id="mode-btn-single" data-mode="single">📄 Fichier unique</button>
+                    <button class="mode-btn" id="mode-btn-bulk" data-mode="bulk">📁 Dossier entier (Bulk)</button>
+                </div>
+
+                <!-- === MODE FICHIER UNIQUE === -->
+                <div id="mode-single">
+                    <h2 class="panel-title" style="margin-top:1.5rem">📂 Sélection du fichier</h2>
+
+                    <!-- File Picker Area -->
+                    <div class="dropzone" id="dropzone">
+                        <div class="dropzone-content">
+                            <span class="dropzone-icon">📥</span>
+                            <p class="dropzone-main-text">Glissez-déposez votre fichier ici</p>
+                            <p class="dropzone-sub-text">Images (JPG, PNG, WEBP) ou Vidéos (MP4, MOV)</p>
+                            <button type="button" class="btn btn-secondary btn-sm" id="btn-browse-file">Parcourir...</button>
+                        </div>
+                    </div>
+
+                    <div class="selected-file-display" id="selected-file-display" style="display: none;">
+                        <div class="file-info-header">
+                            <span class="file-icon" id="file-icon">📄</span>
+                            <div class="file-info-details">
+                                <span class="file-name" id="selected-file-name">nom_du_fichier.jpg</span>
+                                <span class="file-type" id="selected-file-type">Image JPEG</span>
+                            </div>
+                            <button class="btn-clear" id="btn-clear-file">✕</button>
+                        </div>
+                        <input type="hidden" id="input-source-path">
+                    </div>
+                </div>
+
+                <!-- === MODE BULK === -->
+                <div id="mode-bulk" style="display:none;">
+                    <h2 class="panel-title" style="margin-top:1.5rem">📁 Traitement par lot</h2>
+
+                    <div class="form-group">
+                        <label for="input-bulk-source">Dossier source (contient vos médias) :</label>
+                        <div class="input-with-action">
+                            <input type="text" id="input-bulk-source" placeholder="Sélectionner un dossier...">
+                            <button type="button" class="btn btn-icon" id="btn-browse-bulk-source" title="Parcourir">📁</button>
+                        </div>
+                    </div>
+
+                    <div class="bulk-info-box" id="bulk-file-count" style="display:none;">
+                        <span id="bulk-count-text">0 fichier(s) trouvé(s)</span>
+                    </div>
+
+                    <div class="video-info-box" style="margin-top:0.5rem;">
+                        💡 Un <strong>sous-dossier séparé</strong> sera créé pour chaque fichier source dans le dossier de sortie.
+                        <br>Ex : <code>output/photo1/ → 5 variants</code>
+                    </div>
+                </div>
+
+                <!-- Parameters Area (commun aux deux modes) -->
+                <div class="parameters-section">
+                    <h3 class="section-subtitle">⚙️ Réglages de génération</h3>
+                    
+                    <!-- Destination Directory -->
+                    <div class="form-group">
+                        <label for="input-output-path">Dossier de destination :</label>
+                        <div class="input-with-action">
+                            <input type="text" id="input-output-path" placeholder="./output" value="./output">
+                            <button type="button" class="btn btn-icon" id="btn-browse-folder" title="Parcourir les dossiers">📁</button>
+                        </div>
+                    </div>
+
+                    <!-- Variants Stepper -->
+                    <div class="form-group">
+                        <label for="input-copies">Variants par fichier :</label>
+                        <div class="number-stepper">
+                            <button type="button" class="btn-step" id="btn-step-decrement">−</button>
+                            <input type="number" id="input-copies" min="1" max="100" value="5" class="stepper-input">
+                            <button type="button" class="btn-step" id="btn-step-increment">+</button>
+                        </div>
+                    </div>
+
+                    <h3 class="section-subtitle">🛡️ Fonctionnalités Anti-détection</h3>
+
+                    <!-- Image Settings -->
+                    <div class="options-container" id="image-options">
+                        <div class="option-row">
+                            <div class="option-info">
+                                <span class="option-title">Nettoyer signatures IA</span>
+                                <span class="option-desc">Supprime les métadonnées de génération IA (C2PA, XMP, JUMBF)</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="chk-strip-ai" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+
+                        <div class="option-row">
+                            <div class="option-info">
+                                <span class="option-title">Pixel Magic (Nouveau Hash)</span>
+                                <span class="option-desc">Injecte un bruit luma imperceptible pour changer le hash de fichier</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="chk-hash" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+
+                        <div class="form-group sub-option" id="hash-intensity-container">
+                            <div class="slider-header">
+                                <label for="range-intensity">Intensité du bruit :</label>
+                                <span class="slider-value" id="val-intensity">0.5</span>
+                            </div>
+                            <input type="range" id="range-intensity" min="0.1" max="1.5" step="0.1" value="0.5" class="slider">
+                        </div>
+
+                        <div class="option-row">
+                            <div class="option-info">
+                                <span class="option-title">EXIF Réaliste Aléatoire</span>
+                                <span class="option-desc">Génère un profil d'appareil photo et des coordonnées GPS uniques</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="chk-exif" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group" id="exif-details-container" style="margin-top: 1rem;">
+                            <label for="select-exif-profile">Profil d'injection :</label>
+                            <select id="select-exif-profile" class="select-input">
+                                <option value="random">Toutes marques (Aléatoire)</option>
+                                <option value="iphone">iPhone Uniquement</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Video Settings -->
+                    <div class="options-container" id="video-options" style="display: none;">
+                        <div class="option-row">
+                            <div class="option-info">
+                                <span class="option-title">Ré-encodage complet (Modifier Hash des pixels)</span>
+                                <span class="option-desc">Modifie légèrement le GOP, FPS et Bitrate. Plus lent mais indétectable.</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="chk-video-reencode">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="video-info-box">
+                            💡 Par défaut, le traitement vidéo est en <strong>Copie rapide</strong> (métadonnées QuickTime uniquement, instantané).
+                        </div>
+                    </div>
+
+                    <!-- Caption Settings -->
+                    <div class="options-container" id="caption-options" style="margin-top: 1rem; display: none;">
+                        <div class="option-row">
+                            <div class="option-info">
+                                <span class="option-title">Incruster des Captions / Hooks</span>
+                                <span class="option-desc">Choisit une phrase au hasard par copie et l'incruste sur la vidéo</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="chk-captions">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="sub-option" id="caption-details-container" style="display: none;">
+                            <div class="form-group" style="margin-top: 0.5rem;">
+                                <div class="slider-header">
+                                    <label for="range-font-size">Taille de la police (px) :</label>
+                                    <span class="slider-value" id="val-font-size">48</span>
+                                </div>
+                                <input type="range" id="range-font-size" min="16" max="128" step="2" value="48" class="slider">
+                                <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-muted);margin-top:0.2rem;">
+                                    <span>Petit (16)</span>
+                                    <span>Moyen (48)</span>
+                                    <span>Gros (128)</span>
+                                </div>
+                            </div>
+
+                            <div class="form-group" style="margin-top: 0.5rem;">
+                                <div class="slider-header">
+                                    <label for="range-caption-y">Position verticale du texte :</label>
+                                    <span class="slider-value" id="val-caption-y">50%</span>
+                                </div>
+                                <input type="range" id="range-caption-y" min="0" max="100" step="5" value="50" class="slider">
+                                <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-muted);margin-top:0.2rem;">
+                                    <span>⬆ Haut</span>
+                                    <span>Centre</span>
+                                    <span>Bas ⬇</span>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="select-font">Style de police :</label>
+                                <select id="select-font" class="select-input">
+                                    <option value="arial">Modern Sans-serif (Arial)</option>
+                                    <option value="georgia">Elegant Serif (Georgia)</option>
+                                    <option value="impact">Bold Impact (Impact)</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.5rem;">
+                                    <label for="textarea-captions" style="margin-bottom: 0;">Liste des Captions :</label>
+                                    <button type="button" id="btn-load-txt" class="btn btn-secondary" style="padding: 0.2rem 0.6rem; font-size: 0.8rem; border-radius: 6px;">
+                                        📄 Charger un fichier .txt
+                                    </button>
+                                    <input type="file" id="input-load-txt" accept=".txt" style="display: none;">
+                                </div>
+                                <div class="syntax-guide" style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.8rem; background: rgba(0,0,0,0.2); padding: 0.6rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                                    <strong style="color: var(--primary-light);">Syntaxe de mise en forme :</strong>
+                                    <ul style="margin: 0.3rem 0 0 1.2rem; padding: 0;">
+                                        <li><code>/</code> : Saut de ligne simple</li>
+                                        <li><code>//</code> : Double saut de ligne (laisse un espace)</li>
+                                        <li><code>*texte*</code> : Convertit en <strong>MAJUSCULE</strong> (idéal pour appuyer un mot)</li>
+                                        <li><code>_texte_</code> : <span style="letter-spacing: 2px;">E S P A C E M E N T</span> stylisé</li>
+                                    </ul>
+                                </div>
+                                <div style="position: relative;" id="txt-dropzone-container">
+                                    <textarea id="textarea-captions" rows="5" class="textarea-input" placeholder="Exemples :&#10;J'ai passe la nuit avec le frere de mon copain...&#10;Voici le secret / que personne ne vous dira...&#10;Ceci est *vraiment* important // _Cliquez ici_ !"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Popup Image Settings -->
+                    <div class="options-container" id="popup-options" style="margin-top: 1rem; display: none;">
+                        <div class="option-row">
+                            <div class="option-info">
+                                <span class="option-title">Incruster une Image (Pop-up/Flash)</span>
+                                <span class="option-desc">Fait apparaître une image temporaire à un moment précis (ex: effet flash)</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="chk-popup">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="sub-option" id="popup-details-container" style="display: none; padding: 0;">
+                            <div id="popup-dropzone" style="border: 2px dashed rgba(255,255,255,0.2); padding: 1.5rem; text-align: center; border-radius: 8px; margin-bottom: 1rem; color: #888; transition: border-color 0.2s, color 0.2s; cursor: pointer;">
+                                📥 Glissez-déposez vos images ici
+                            </div>
+                            <div id="popups-list" style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem;">
+                                <!-- Popups will be added here -->
+                            </div>
+                            <button type="button" id="btn-add-popup" class="btn btn-secondary btn-block" style="border: 1px dashed rgba(255,255,255,0.2);">
+                                ➕ Ajouter une image manuellement
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Action Button -->
+                    <button type="button" class="btn btn-primary btn-block" id="btn-process" disabled>
+                        🚀 Lancer la génération des copies
+                    </button>
+                </div>
+            </section>
+
+            <!-- Right Panel: Live Logs & Results -->
+            <section class="panel glass-panel logs-panel">
+                <div class="logs-header">
+                    <h2 class="panel-title">🖥️ Console de traitement</h2>
+                    <button class="btn btn-clear-logs" id="btn-clear-logs" title="Effacer la console">🗑️</button>
+                </div>
+                
+                <!-- Terminal Console -->
+                <div class="console-wrapper">
+                    <div class="console" id="console">
+                        <div class="console-line system-msg">MultiMetaChanger v2.0 pret. Sélectionnez un fichier ou un dossier pour démarrer.</div>
+                    </div>
+                </div>
+
+                <!-- Progress Bar -->
+                <div class="progress-container" style="display: none;" id="progress-container">
+                    <div class="progress-bar-wrapper">
+                        <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
+                    </div>
+                    <div class="progress-text" id="progress-text">Traitement : 0%</div>
+                </div>
+
+                <!-- Results Area -->
+                <div class="results-area" id="results-area" style="display: none;">
+                    <div class="results-header">
+                        <h3 class="section-subtitle">✅ Fichiers générés</h3>
+                        <button class="btn btn-secondary btn-sm" id="btn-open-output-dir">📂 Ouvrir le dossier</button>
+                    </div>
+                    <div class="results-list" id="results-list">
+                        <!-- Fichiers ajoutés en JS -->
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Diagnostic : detecte les IDs manquants qui casseraient le JS -->
+    <script>
+    (function() {
+        var requiredIds = [
+            'system-status','dropzone','selected-file-display','selected-file-name',
+            'selected-file-type','input-source-path','btn-clear-file','btn-browse-file',
+            'input-output-path','btn-browse-folder','input-copies','btn-step-decrement',
+            'btn-step-increment','image-options','video-options','chk-strip-ai','chk-hash',
+            'hash-intensity-container','range-intensity','val-intensity','chk-exif',
+            'chk-video-reencode','caption-options','chk-captions','caption-details-container',
+            'range-font-size','val-font-size','select-font','textarea-captions',
+            'btn-process','btn-clear-logs','console','progress-container','progress-bar',
+            'progress-text','results-area','results-list','btn-open-output-dir',
+            'mode-single','mode-bulk','mode-btn-single','mode-btn-bulk',
+            'input-bulk-source','btn-browse-bulk-source','bulk-file-count','bulk-count-text',
+            'file-icon','btn-load-txt','input-load-txt'
+        ];
+        var missing = requiredIds.filter(function(id) { return !document.getElementById(id); });
+        if (missing.length > 0) {
+            console.error('DIAGNOSTIC IDs MANQUANTS:', missing.join(', '));
+            var div = document.createElement('div');
+            div.style.cssText = 'position:fixed;bottom:10px;right:10px;background:#c00;color:#fff;padding:10px;border-radius:8px;z-index:9999;font-size:12px;max-width:400px;';
+            div.innerHTML = '🐛 IDs manquants (JS bloqué) :<br>' + missing.join('<br>');
+            document.body.appendChild(div);
+        } else {
+            console.log('✅ Diagnostic : Tous les IDs HTML sont présents.');
+        }
+    })();
+    </script>
+    <!-- Script principal -->
+    <script src="/static/js/main.js"></script>
+</body>
+</html>

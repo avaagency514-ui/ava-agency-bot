@@ -1,0 +1,8 @@
+Bienvenue sur MultiMetaChanger !
+
+Pour lancer le logiciel :
+1. Ouvrez le dossier 'App'
+2. Double-cliquez sur 'MultiMetaChanger.exe'
+3. Entrez la clé de licence reçue par email.
+
+Bonne utilisation !

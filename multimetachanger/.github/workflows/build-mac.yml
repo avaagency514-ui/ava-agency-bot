@@ -1,0 +1,52 @@
+name: Build Mac App
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: # Permet de lancer manuellement
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11' # Ou la version que vous utilisez
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+
+    - name: Download Mac FFmpeg
+      run: |
+        # Télécharger FFmpeg pour Mac
+        curl -L -o ffmpeg.zip https://evermeet.cx/ffmpeg/ffmpeg-6.0.zip
+        curl -L -o ffprobe.zip https://evermeet.cx/ffmpeg/ffprobe-6.0.zip
+        unzip ffmpeg.zip
+        unzip ffprobe.zip
+        chmod +x ffmpeg ffprobe
+
+    - name: Build with PyInstaller
+      run: |
+        pyinstaller --noconfirm --windowed --name=MultiMetaChanger_Mac --add-data="templates:templates" --add-data="static:static" app.py
+
+    - name: Prepare Release Folder
+      run: |
+        mkdir MultiMetaChanger_Mac_Client
+        cp -r dist/MultiMetaChanger_Mac.app MultiMetaChanger_Mac_Client/
+        cp ffmpeg MultiMetaChanger_Mac_Client/
+        cp ffprobe MultiMetaChanger_Mac_Client/
+        echo "Ouvrez l'application MultiMetaChanger_Mac.app pour lancer le logiciel." > MultiMetaChanger_Mac_Client/LISEZ_MOI.txt
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: MultiMetaChanger_Mac
+        path: MultiMetaChanger_Mac_Client/
