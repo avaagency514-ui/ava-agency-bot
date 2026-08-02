@@ -3,4 +3,4 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "python3 /app/multimetachanger/app.py & sleep 3 && node /app/index.js"
+startCommand = "node index.js"
