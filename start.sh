@@ -1,19 +1,22 @@
 #!/bin/bash
+set -e
 
-# Start the Python Flask app (MultiMetaChanger) in the background
-echo "Démarrage de MultiMetaChanger (API Python)..."
-cd multimetachanger
-python3 -u app.py > python_api.log 2>&1 &
-cd ..
+echo "=== Demarrage MultiMetaChanger (Python Flask) ==="
+cd /app/multimetachanger
+python3 -u app.py &
+PYTHON_PID=$!
+cd /app
 
-# Wait a couple of seconds to ensure the API is up
-sleep 3
+echo "=== Attente demarrage API (5 secondes) ==="
+sleep 5
 
-# Print the Python API logs to see if it crashed
-echo "=== LOGS API PYTHON ==="
-cat multimetachanger/python_api.log
-echo "======================="
+# Verifier si Python est toujours actif
+if kill -0 $PYTHON_PID 2>/dev/null; then
+    echo "=== API Python OK (PID: $PYTHON_PID) ==="
+else
+    echo "=== ERREUR: API Python a crashe! ==="
+    exit 1
+fi
 
-# Start the Discord bot in the foreground
-echo "Démarrage de AVA Agency Bot..."
-node index.js
+echo "=== Demarrage AVA Agency Bot (Node.js) ==="
+node /app/index.js
