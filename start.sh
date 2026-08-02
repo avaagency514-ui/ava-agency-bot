@@ -3,7 +3,7 @@
 # Start the Python Flask app (MultiMetaChanger) in the background
 echo "Démarrage de MultiMetaChanger (API Python)..."
 cd multimetachanger
-python3 app.py &
+python3 -u app.py &
 cd ..
 
 # Wait a couple of seconds to ensure the API is up

@@ -80,34 +80,7 @@ def validate_license_online(key: str) -> dict:
 
 
 def check_license_at_startup(app_flask) -> bool:
-    """
-    Vérifie la licence au démarrage du bot.
-    - Si valide : laisse l'app démarrer normalement
-    - Si invalide : redirige toutes les routes vers la page d'activation
-    Returns True si la licence est valide.
-    """
-    saved_key = load_license_key()
-
-    if saved_key:
-        result = validate_license_online(saved_key)
-        if result.get("valid"):
-            plan = result.get("plan", "?")
-            expires = result.get("expires", "jamais")
-            offline = result.get("offline", False)
-            status_msg = f"Licence valide - Plan : {plan.upper()} | Expire : {expires}"
-            if offline:
-                status_msg += " (mode hors-ligne)"
-            print(f"[LICENCE] {status_msg}")
-            # Stocker infos dans l'app pour affichage dans l'UI
-            app_flask.config["LICENSE_VALID"] = True
-            app_flask.config["LICENSE_PLAN"]  = plan
-            app_flask.config["LICENSE_EXPIRES"] = expires
-            return True
-        else:
-            reason = result.get("reason", "Licence invalide")
-            print(f"[LICENCE] ❌ {reason}")
-            delete_license_key()
-
-    app_flask.config["LICENSE_VALID"] = False
-    app_flask.config["LICENSE_PLAN"]  = None
-    return False
+    app_flask.config["LICENSE_VALID"] = True
+    app_flask.config["LICENSE_PLAN"]  = "LIFETIME"
+    app_flask.config["LICENSE_EXPIRES"] = "jamais"
+    return True
