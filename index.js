@@ -2,8 +2,34 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const { initDatabase } = require('./database/db');
 const { startTasks } = require('./tasks');
+
+// ─── Démarrage de l'API Python (MultiMetaChanger) ────────────
+function startPythonAPI() {
+  const pythonPath = path.join(__dirname, 'multimetachanger', 'app.py');
+  
+  // Vérifie si le fichier existe (on est bien dans un conteneur Docker)
+  if (!fs.existsSync(pythonPath)) {
+    console.log('⚠️  app.py introuvable - MultiMetaChanger non disponible');
+    return;
+  }
+
+  const py = spawn('python3', ['-u', pythonPath], {
+    cwd: path.join(__dirname, 'multimetachanger'),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  py.stdout.on('data', (d) => console.log(`[Python] ${d.toString().trim()}`));
+  py.stderr.on('data', (d) => console.error(`[Python ERR] ${d.toString().trim()}`));
+  py.on('close', (code) => console.error(`[Python] Processus terminé avec code ${code}`));
+
+  console.log('🐍 API Python (MultiMetaChanger) lancée en arrière-plan...');
+}
+
+startPythonAPI();
+
 
 // ─── Client Discord ───────────────────────────────────────────
 const client = new Client({
