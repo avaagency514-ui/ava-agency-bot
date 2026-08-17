@@ -14,6 +14,15 @@ function initGemini() {
   return genAI;
 }
 
+const CANDIDATE_MODELS = [
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-2.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-pro'
+];
+
 /**
  * Prend un texte de base (issu du Google Sheet) et demande à Gemini de le reformuler de manière unique.
  * @param {string} baseText Le texte d'origine
@@ -25,8 +34,6 @@ async function generateUniqueText(baseText, type, market) {
   if (!genAI) initGemini();
   if (!genAI) throw new Error("Gemini API non configurée.");
 
-  const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
-  
   const language = market === 'US' ? 'English (US)' : 'French';
 
   const prompt = `You are a social media expert creating an Instagram account for the ${language} market.
@@ -42,14 +49,30 @@ ${baseText}
 """
 `;
 
-  try {
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    return response.text().trim();
-  } catch (err) {
-    console.error(`❌ Erreur Gemini (${type}):`, err.message);
-    throw new Error(`La génération Gemini a échoué: ${err.message}`);
+  let lastError = null;
+
+  for (const modelName of CANDIDATE_MODELS) {
+    try {
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      let text = response.text().trim();
+
+      // Nettoyer les guillemets ou blocs markdown superflus si l'IA en ajoute
+      text = text.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '').trim();
+      text = text.replace(/^["']|["']$/g, '').trim();
+
+      return text;
+    } catch (err) {
+      lastError = err;
+      console.warn(`⚠️ Modèle Gemini "${modelName}" indisponible ou erreur (${err.message}). Tentative avec le modèle suivant...`);
+      // Petit délai avant de basculer sur le modèle de secours
+      await new Promise(resolve => setTimeout(resolve, 600));
+    }
   }
+
+  console.error(`❌ Tous les modèles Gemini ont échoué (${type}):`, lastError?.message);
+  throw new Error(`La génération Gemini a échoué après plusieurs tentatives: ${lastError?.message || 'Erreur inconnue'}`);
 }
 
 module.exports = { initGemini, generateUniqueText };

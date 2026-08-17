@@ -131,7 +131,7 @@ async function handleTextRequest(interaction, type, meta) {
       .setColor(meta.color)
       .setTitle(`${meta.emoji} Ton texte ${meta.label} unique`)
       .setDescription(`\`\`\`\n${uniqueText}\n\`\`\``)
-      .setFooter({ text: 'Généré par Gemini Pro 1.5' });
+      .setFooter({ text: 'Généré par Gemini IA' });
       
     await interaction.editReply({ embeds: [embed] });
   } catch (err) {
