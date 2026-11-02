@@ -1,11 +1,15 @@
 const { Events } = require('discord.js');
 const { vaQueries, igQueries } = require('../database/db');
 const { handleContentFactory } = require('../handlers/contentFactory');
+const { handleChatterButton, handleChatterSelect, handleChatterModal } = require('../handlers/chatterHandler');
+const { handlePenaltyButton, handlePenaltySelect, handlePenaltyModal } = require('../handlers/penaltyHandler');
+const { handleComptaButton, handleComptaSelect, handleComptaModal } = require('../handlers/comptaHandler');
 
 module.exports = {
   name: Events.InteractionCreate,
 
   async execute(interaction, client) {
+    try {
     // ─── Commandes Slash ────────────────────────────────────────
     if (interaction.isChatInputCommand()) {
       const command = client.commands.get(interaction.commandName);
@@ -29,8 +33,20 @@ module.exports = {
     if (interaction.isStringSelectMenu()) {
       const id = interaction.customId;
       
+      if (id.startsWith('chatter_')) {
+        return handleChatterSelect(interaction, client);
+      }
+
+      if (id.startsWith('compta_')) {
+        return handleComptaSelect(interaction, client);
+      }
+
+      if (id.startsWith('penalty_')) {
+        return handlePenaltySelect(interaction, client);
+      }
+
       if (id.startsWith('sel_acc_')) {
-        const { accSelections } = require('../commands/acc');
+        const { accSelections, buildAccComponents } = require('../commands/acc');
         const parts = id.split('_');
         const type = parts[2]; // id, os, date
         const sessionId = parts.slice(3).join('_');
@@ -50,7 +66,8 @@ module.exports = {
           .setDescription(`**Profile ID:** ${selection.profile_id}\n**Enregistré:** ${selection.registration_date}\n**OS:** ${selection.os}\n\n*Ajustez les paramètres ci-dessous puis cliquez sur le bouton pour renseigner les identifiants et créer le compte.*`)
           .setColor('#2b2d31');
           
-        return interaction.update({ embeds: [embed] });
+        const components = buildAccComponents ? buildAccComponents(sessionId, selection) : interaction.message.components;
+        return interaction.update({ embeds: [embed], components });
       }
 
       // Content Factory qty request
@@ -67,6 +84,44 @@ module.exports = {
     }
     if (interaction.isButton()) {
       const id = interaction.customId;
+
+      // Ticket onboarding & role assignment
+      if (id.startsWith('ticket_')) {
+        const { handleTicketButton } = require('../handlers/ticketHandler');
+        return handleTicketButton(interaction, client);
+      }
+
+      // Chatter interactions
+      if (id.startsWith('chatter_')) {
+        return handleChatterButton(interaction, client);
+      }
+
+      // Penalty interactions
+      if (id.startsWith('penalty_')) {
+        return handlePenaltyButton(interaction, client);
+      }
+
+      // Compta interactions
+      if (id.startsWith('compta_')) {
+        return handleComptaButton(interaction, client);
+      }
+
+      // Pagination /acc Profile IDs
+      if (id.startsWith('btn_acc_page_')) {
+        const parts = id.split('_');
+        const action = parts[3]; // 'prev' or 'next'
+        const sessionId = parts.slice(4).join('_');
+        const { accSelections, buildAccComponents } = require('../commands/acc');
+        const selection = accSelections.get(sessionId);
+        if (!selection) return interaction.reply({ content: 'Session expirée. Veuillez refaire la commande `/acc`.', ephemeral: true });
+
+        const totalPages = Math.ceil((selection.allProfiles?.length || 1) / 25);
+        if (action === 'prev' && selection.page > 0) selection.page--;
+        if (action === 'next' && selection.page < totalPages - 1) selection.page++;
+
+        const newComponents = buildAccComponents(sessionId, selection);
+        return interaction.update({ components: newComponents });
+      }
 
       // Content Factory
       if (id.startsWith('content_')) {
@@ -113,6 +168,22 @@ module.exports = {
         return handleVaPause(interaction, vaId);
       }
 
+      // Link Telegram
+      if (id.startsWith('va_telegram_')) {
+        const vaId = parseInt(id.replace('va_telegram_', ''));
+        const telegramCodes = require('../services/telegramCodes');
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        telegramCodes.set(code, vaId);
+        
+        // Expiration au bout de 15 minutes
+        setTimeout(() => telegramCodes.delete(code), 15 * 60 * 1000);
+
+        return interaction.reply({
+          content: `🔗 **Connexion Telegram**\n\nPour lier ce VA à un compte Telegram, ouvre le bot Telegram et envoie ce message :\n\n\`/connect ${code}\`\n\n*(Ce code expire dans 15 minutes)*`,
+          ephemeral: true
+        });
+      }
+
       // Show IG Creds
       if (id.startsWith('ig_creds_')) {
         const compteId = parseInt(id.replace('ig_creds_', ''));
@@ -139,14 +210,14 @@ module.exports = {
 
         const usernameInput = new TextInputBuilder().setCustomId('username_ig').setLabel('Username Instagram').setStyle(TextInputStyle.Short).setRequired(true);
         const passwordInput = new TextInputBuilder().setCustomId('password').setLabel('Mot de passe').setStyle(TextInputStyle.Short).setRequired(false);
+        const emailInput = new TextInputBuilder().setCustomId('email_numero').setLabel('Mail / Numéro').setStyle(TextInputStyle.Short).setRequired(false);
         const twofaInput = new TextInputBuilder().setCustomId('two_fa').setLabel('Clé 2FA').setStyle(TextInputStyle.Short).setRequired(false);
-        const deeplinkInput = new TextInputBuilder().setCustomId('deeplink').setLabel('Deeplink myfeed.fans').setStyle(TextInputStyle.Short).setRequired(false);
 
         modal.addComponents(
           new ActionRowBuilder().addComponents(usernameInput),
           new ActionRowBuilder().addComponents(passwordInput),
-          new ActionRowBuilder().addComponents(twofaInput),
-          new ActionRowBuilder().addComponents(deeplinkInput)
+          new ActionRowBuilder().addComponents(emailInput),
+          new ActionRowBuilder().addComponents(twofaInput)
         );
 
         return interaction.showModal(modal);
@@ -177,6 +248,21 @@ module.exports = {
     if (interaction.isModalSubmit()) {
       const id = interaction.customId;
 
+      // Chatter Modals
+      if (id.startsWith('chatter_')) {
+        return handleChatterModal(interaction, client);
+      }
+
+      // Penalty Modals
+      if (id.startsWith('penalty_')) {
+        return handlePenaltyModal(interaction, client);
+      }
+
+      // Compta Modals
+      if (id.startsWith('compta_')) {
+        return handleComptaModal(interaction, client);
+      }
+
       // Créer un VA
       if (id === 'modal_va_create') {
         return handleVaCreate(interaction);
@@ -193,7 +279,18 @@ module.exports = {
         return handleVaUpdate(interaction, vaId);
       }
     }
-  },
+  } catch (err) {
+    console.error('❌ Erreur interaction non capturée :', err);
+    const msg = { content: '❌ Une erreur est survenue lors de cette interaction. Veuillez réessayer.', ephemeral: true };
+    try {
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply(msg);
+      } else {
+        await interaction.followUp(msg);
+      }
+    } catch (_) {}
+  }
+},
 };
 
 // ─── Handlers ────────────────────────────────────────────────
@@ -313,16 +410,18 @@ async function handleAccFinalCreate(interaction, sessionId) {
   const selection = accSelections.get(sessionId);
   if (!selection) return interaction.reply({ content: 'Session expirée.', ephemeral: true });
 
+  await interaction.deferUpdate(); // Empêche l'erreur de timeout Discord pendant le scan Drive
+
   const usernameIg = interaction.fields.getTextInputValue('username_ig');
   const password = interaction.fields.getTextInputValue('password') || null;
+  const emailNumero = interaction.fields.getTextInputValue('email_numero') || null;
   const twofa = interaction.fields.getTextInputValue('two_fa') || null;
-  const deeplink = interaction.fields.getTextInputValue('deeplink') || null;
 
   try {
     igQueries.create.run({ 
       va_id: selection.va_id, 
       username_ig: usernameIg, 
-      deeplink: deeplink,
+      deeplink: null,
       profile_id: selection.profile_id,
       os: selection.os,
       password: password,
@@ -333,30 +432,46 @@ async function handleAccFinalCreate(interaction, sessionId) {
     const va = vaQueries.getById.get(selection.va_id);
     accSelections.delete(sessionId); // clean cache
 
-    // Sauvegarder dans Google Sheets
+    // Déterminer le marché d'après le channel ou par défaut
+    const isUs = (process.env.CHANNEL_CONTENT_US && va.channel_id === process.env.CHANNEL_CONTENT_US) || (process.env.CHANNEL_CONTENT_US_MOBILE && va.channel_id === process.env.CHANNEL_CONTENT_US_MOBILE);
+    const marche = isUs ? "US" : "FR";
+    
+    // Nettoyer le pseudo (enlève les points, tirets, etc.) pour le lien
+    const cleanUsername = usernameIg.replace(/[^a-zA-Z0-9]/g, '');
+    const lienInsta = `https://linky.fans/${cleanUsername}`;
+
+    // Récupérer les liens Drive
+    const { fetchProfileLinks } = require('../services/drive');
+    const links = await fetchProfileLinks(selection.profile_id);
+
+    // Sauvegarder dans Google Sheets (Format A à O)
     const { appendAccountToSheet } = require('../services/sheets');
-    const today = new Date().toLocaleDateString('fr-FR');
     await appendAccountToSheet([
-      va.username,          // VA
-      usernameIg,           // Username IG
-      selection.profile_id, // Profile ID
-      selection.os,         // OS
-      today,                // Date
-      password || '',       // Mot de passe
-      twofa || '',          // 2FA
-      deeplink || ''        // Deeplink
+      marche,               // A: Marché
+      "Pause",              // B: Statut (par défaut Pause)
+      usernameIg,           // C: Nom d'utilisateur
+      password || '',       // D: Mot de passe
+      emailNumero || '',    // E: Mail/Numero
+      twofa || '',          // F: 2FA
+      '',                   // G: Api buffer
+      selection.profile_id, // H: ID Dossier
+      links.driveUrl,       // I: Lien Drive
+      lienInsta,            // J: Lien Insta
+      (emailNumero && emailNumero.includes('@')) ? emailNumero : '', // K: Mohmal
+      password || '',       // L: MP
+      va ? va.username : 'Fondateur' // M: Nom VA
     ]);
 
     // Remplacer le message initial
     const embed = new EmbedBuilder()
       .setColor(0xe1306c)
       .setTitle('✅ Compte Instagram ajouté')
-      .setDescription(`Le compte **${usernameIg}** a bien été enregistré.`)
+      .setDescription(`Le compte **${usernameIg}** a bien été enregistré.\n\n🔗 **Lien Insta :** ${lienInsta}\n📁 **Dossier Drive :** [Ouvrir le dossier](${links.driveUrl || 'Non trouvé'})`)
       .setTimestamp();
 
-    await interaction.update({ embeds: [embed], components: [], content: null });
+    await interaction.editReply({ embeds: [embed], components: [], content: null });
   } catch (err) {
-    await interaction.reply({ content: `❌ Erreur : ${err.message}`, ephemeral: true });
+    await interaction.followUp({ content: `❌ Erreur : ${err.message}`, ephemeral: true });
   }
 }
 

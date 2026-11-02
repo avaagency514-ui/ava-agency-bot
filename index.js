@@ -6,19 +6,33 @@ const { spawn } = require('child_process');
 const { initDatabase } = require('./database/db');
 const { startTasks } = require('./tasks');
 
+process.on('uncaughtException', (err) => {
+  console.error('❌ Exception non capturée :', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Rejet non géré :', reason);
+});
+
 // ─── Démarrage de l'API Python (MultiMetaChanger) ────────────
 function startPythonAPI() {
-  const pythonPath = path.join(__dirname, 'multimetachanger', 'app.py');
-  
-  // Vérifie si le fichier existe (on est bien dans un conteneur Docker)
-  if (!fs.existsSync(pythonPath)) {
-    console.log('⚠️  app.py introuvable - MultiMetaChanger non disponible');
+  if (process.env.SKIP_SPAWN_PYTHON === 'true') {
+    console.log('🐍 API Python gérée par le script de démarrage (start.sh).');
     return;
   }
 
-  const py = spawn('python3', ['-u', pythonPath], {
+  const pythonPath = path.join(__dirname, 'multimetachanger', 'app.py');
+  
+  if (!fs.existsSync(pythonPath)) {
+    console.log('⚠️ app.py introuvable - MultiMetaChanger non disponible');
+    return;
+  }
+
+  const pyCmd = process.platform === 'win32' ? 'python' : 'python3';
+  const py = spawn(pyCmd, ['-u', pythonPath], {
     cwd: path.join(__dirname, 'multimetachanger'),
     stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true
   });
 
   py.stdout.on('data', (d) => console.log(`[Python] ${d.toString().trim()}`));
@@ -29,7 +43,6 @@ function startPythonAPI() {
 }
 
 startPythonAPI();
-
 
 // ─── Client Discord ───────────────────────────────────────────
 const client = new Client({
@@ -80,13 +93,18 @@ async function main() {
   // Login Discord
   await client.login(process.env.DISCORD_TOKEN);
   
-  // Démarrer les tâches cron (après connexion Discord)
-  client.once('ready', () => {
-    startTasks(client);
-  });
+  // Démarrer le bot Telegram (VA content factory)
+  const { startTelegramBot } = require('./telegram/bot');
+  startTelegramBot(client);
+  
+  // Démarrer le tracker d'abonnés Telegram
+  const { startTgTracker } = require('./services/tgTracker');
+  startTgTracker(client).catch(err => console.error('❌ TG Tracker:', err.message));
+  
+  // Démarrer les tâches cron
+  startTasks(client);
 }
 
 main().catch(err => {
   console.error('❌ Erreur fatale :', err);
-  process.exit(1);
 });

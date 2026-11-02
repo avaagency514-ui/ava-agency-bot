@@ -608,6 +608,7 @@ def modify_video_metadata(input_path, output_path, reencode=False, custom_meta=N
             ffmpeg_path, "-i", input_path,
             "-map_metadata", "-1",
             "-c", "copy",
+            "-movflags", "+faststart",
             "-metadata", f"creation_time={dt_str}",
             "-metadata", f"make={meta['make']}",
             "-metadata", f"model={meta['model']}",

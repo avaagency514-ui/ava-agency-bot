@@ -1,4 +1,6 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const path = require('path');
+const fs = require('fs');
 
 let genAI = null;
 
@@ -6,7 +8,7 @@ function initGemini() {
   if (process.env.GEMINI_API_KEY && !genAI) {
     try {
       genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-      console.log('✅ Gemini API initialisé');
+      console.log('✅ Gemini API (SDK direct) initialisé');
     } catch (e) {
       console.error('❌ Erreur lors de l\'initialisation de Gemini API:', e.message);
     }
@@ -14,29 +16,115 @@ function initGemini() {
   return genAI;
 }
 
-const CANDIDATE_MODELS = [
-  'gemini-3.6-flash',
+const FREELLM_MODELS = [
+  'gemini-3.8-flash',
   'gemini-3.5-flash',
-  'gemini-2.5-flash',
   'gemini-3.5-flash-lite',
-  'gemini-2.5-flash-lite',
-  'gemini-2.5-pro'
+  'gemini-flash',
+  'llama-3.3-70b-fp8-fast',
+  'qwq-32b',
+  'glm-4.7-flash',
+  'mistral-small-3.1-24b',
+  'llama-3.1-8b',
+  'qwen3-30b-a3b-fp8',
 ];
 
+const SDK_MODELS = [
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-pro-preview',
+  'gemini-flash-latest',
+  'gemini-3.5-flash',
+  'gemini-3.6-flash',
+  'gemini-3.7-flash',
+  'gemini-3.8-flash',
+  'gemini-flash-lite-latest',
+  'gemini-pro-latest',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-3-flash-preview',
+  'gemini-3.1-flash-lite',
+  'gemini-3.1-flash-lite-preview',
+  'gemini-omni-1.1-flash',
+  'gemini-omni-flash-preview',
+  'antigravity-preview-latest'
+];
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
 /**
- * Prend un texte de base (issu du Google Sheet) et demande à Gemini de le reformuler de manière unique.
- * @param {string} baseText Le texte d'origine
- * @param {string} type Le type de texte ('Bio', 'Story CTA', 'Profil')
- * @param {string} market 'FR' ou 'US' pour orienter la langue
- * @returns {Promise<string>} Le texte généré 100% unique
+ * Tente la génération via l'API locale FreeLLM (http://127.0.0.1:31415/v1)
+ */
+async function generateViaFreeLLM(prompt) {
+  const baseUrl = (process.env.FREELLM_API_URL || 'http://127.0.0.1:31415/v1').replace(/\/$/, '');
+  const apiKey = process.env.FREELLM_API_KEY || 'freellmapi-37fb5da40d7ec8d677a46f59012bd81d7fe256a1327e7ddf';
+
+  let lastError = null;
+
+  for (const modelName of FREELLM_MODELS) {
+    try {
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: modelName,
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert social media copywriter. Output ONLY the rewritten text without surrounding commentary, markdown code blocks, or quotes.'
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          temperature: 0.7
+        })
+      });
+
+      const data = await response.json();
+      if (response.ok && data.choices && data.choices.length > 0 && data.choices[0].message?.content) {
+        let text = data.choices[0].message.content.trim();
+        // Nettoyer les blocs markdown ou guillemets superflus
+        text = text.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '').trim();
+        text = text.replace(/^["']|["']$/g, '').trim();
+        console.log(`🤖 FreeLLM API (${modelName}) -> Génération réussie`);
+        return text;
+      }
+
+      const errMsg = data.error?.message || `HTTP ${response.status}`;
+      lastError = new Error(errMsg);
+      console.warn(`⚠️ FreeLLM modèle "${modelName}" indisponible: ${errMsg}. Tentative suivant...`);
+    } catch (err) {
+      lastError = err;
+      console.warn(`⚠️ Erreur connexion FreeLLM (${modelName}): ${err.message}`);
+    }
+  }
+
+  throw lastError || new Error("Serveur FreeLLM indisponible");
+}
+
+/**
+ * Reformule un texte de base de manière unique (FreeLLM -> Fallback SDK Direct)
  */
 async function generateUniqueText(baseText, type, market) {
-  if (!genAI) initGemini();
-  if (!genAI) throw new Error("Gemini API non configurée.");
-
   const language = market === 'US' ? 'English (US)' : 'French';
 
-  const prompt = `You are a social media expert creating an Instagram account for the ${language} market.
+  // Prompt spécial pour Profil Texte (pseudo | nom) : garder le format exact
+  const isProfilTexte = type === 'Profil Texte';
+  const promptText = isProfilTexte
+    ? `You are creating a unique Instagram username and first name for a ${language} female model/influencer account.
+The original is: "${baseText}"
+Your task: invent a COMPLETELY DIFFERENT and NEW pseudo and first name, following EXACTLY the same format: "pseudo : [new_pseudo] | nom : [new_firstname]"
+Rules:
+- The pseudo must be a real-looking Instagram username (lowercase, can use dots, underscores, numbers)
+- The first name must be a real French female first name if language is French, or American if US
+- DO NOT copy or slightly modify the original — create something entirely new
+- Output ONLY the result in this exact format: pseudo : xxx | nom : xxx
+- No explanation, no quotes, no other text.`
+    : `You are a social media expert creating an Instagram account for the ${language} market.
 I will give you an original text for a "${type}".
 Your task is to rewrite it to be 100% unique so that no two accounts ever look exactly the same.
 Keep the original meaning, intent, and tone.
@@ -49,30 +137,94 @@ ${baseText}
 """
 `;
 
+  const prompt = promptText;
+
+  // 1. Tenter d'abord via l'API locale FreeLLM (http://127.0.0.1:31415/v1)
+  try {
+    return await generateViaFreeLLM(prompt);
+  } catch (freeLlmErr) {
+    console.warn(`⚠️ FreeLLM API non disponible (${freeLlmErr.message}), bascule sur l'API Gemini Direct...`);
+  }
+
+  // 2. Fallback direct via Google Generative AI SDK
+  if (!genAI) initGemini();
+  if (!genAI) throw new Error("Gemini API non configurée.");
+
   let lastError = null;
+  for (const modelName of SDK_MODELS) {
+    let retries = 2; // on peut réessayer jusqu'à 2 fois pour les erreurs 503
+    while (retries >= 0) {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        let text = response.text().trim();
 
-  for (const modelName of CANDIDATE_MODELS) {
-    try {
-      const model = genAI.getGenerativeModel({ model: modelName });
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      let text = response.text().trim();
+        text = text.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '').trim();
+        text = text.replace(/^["']|["']$/g, '').trim();
 
-      // Nettoyer les guillemets ou blocs markdown superflus si l'IA en ajoute
-      text = text.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '').trim();
-      text = text.replace(/^["']|["']$/g, '').trim();
-
-      return text;
-    } catch (err) {
-      lastError = err;
-      console.warn(`⚠️ Modèle Gemini "${modelName}" indisponible ou erreur (${err.message}). Tentative avec le modèle suivant...`);
-      // Petit délai avant de basculer sur le modèle de secours
-      await new Promise(resolve => setTimeout(resolve, 600));
+        return text;
+      } catch (err) {
+        lastError = err;
+        console.warn(`⚠️ Modèle Gemini direct "${modelName}" error (${err.message})...`);
+        
+        if (err.message && err.message.includes('503') && retries > 0) {
+          console.log(`🔄 Surcharge détectée, nouvelle tentative dans 2 secondes...`);
+          await sleep(2000);
+          retries--;
+        } else {
+          break; // passe au modèle suivant si ce n'est pas un 503 ou si on n'a plus d'essais
+        }
+      }
     }
   }
 
-  console.error(`❌ Tous les modèles Gemini ont échoué (${type}):`, lastError?.message);
-  throw new Error(`La génération Gemini a échoué après plusieurs tentatives: ${lastError?.message || 'Erreur inconnue'}`);
+  throw new Error(`La génération a échoué via FreeLLM et Gemini direct: ${lastError?.message || 'Erreur inconnue'}`);
 }
 
-module.exports = { initGemini, generateUniqueText };
+async function translateToEnglish(text) {
+  const prompt = `You are a professional social media translator. Translate the following French Instagram text to natural, engaging English (US). 
+Keep the original tone, humor, and style.
+Do NOT add any explanations, surrounding text, or markdown formatting. Output ONLY the translated text.
+
+Original text:
+"""
+${text}
+"""`;
+
+  try {
+    return await generateViaFreeLLM(prompt);
+  } catch (freeLlmErr) {
+    console.warn(`⚠️ FreeLLM API non disponible pour traduction (${freeLlmErr.message}), bascule sur l'API Gemini Direct...`);
+  }
+
+  if (!genAI) initGemini();
+  if (!genAI) throw new Error("Gemini API non configurée.");
+
+  let lastError = null;
+  for (const modelName of SDK_MODELS) {
+    let retries = 2;
+    while (retries >= 0) {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        let outText = response.text().trim();
+        outText = outText.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '').trim();
+        outText = outText.replace(/^["']|["']$/g, '').trim();
+        return outText;
+      } catch (err) {
+        if (err.message && err.message.includes('503')) {
+          retries--;
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
+        lastError = err;
+        break; 
+      }
+    }
+  }
+  throw lastError || new Error("La traduction a échoué via tous les modèles.");
+}
+
+module.exports = { initGemini, generateUniqueText, translateToEnglish };

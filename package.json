@@ -16,7 +16,8 @@
     "dotenv": "^16.4.5",
     "form-data": "^4.0.0",
     "googleapis": "^140.0.1",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "node-telegram-bot-api": "^0.66.0"
   },
   "engines": {
     "node": ">=22.0.0"

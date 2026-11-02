@@ -2,6 +2,7 @@
 set -e
 
 echo "=== Demarrage MultiMetaChanger (Python Flask) ==="
+export SKIP_SPAWN_PYTHON=true
 cd /app/multimetachanger
 python3 -u app.py &
 PYTHON_PID=$!

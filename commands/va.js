@@ -78,9 +78,13 @@ module.exports = {
         .setLabel('⏸️ Pause')
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
+        .setCustomId(`va_telegram_${va.id}`)
+        .setLabel('🔗 Telegram')
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
         .setCustomId(`va_refresh_${va.id}`)
         .setLabel('🔄 Actualiser')
-        .setStyle(ButtonStyle.Secondary),
+        .setStyle(ButtonStyle.Secondary)
     );
 
     await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });

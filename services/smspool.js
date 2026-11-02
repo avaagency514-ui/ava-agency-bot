@@ -57,8 +57,21 @@ async function getTemporaryNumber(service, country = 'FR') {
     });
     return { success: true, data: response.data };
   } catch (err) {
-    console.error('❌ SMSPool getTemporaryNumber error:', err.message);
-    return { success: false, error: err.message };
+    let cleanError = err.message;
+    if (err.response && err.response.data) {
+      const data = err.response.data;
+      if (data.type === 'PORTS_OCCUPIED') {
+        cleanError = 'Tous les slots/lignes SMSPool sont actuellement occupés. Réessaye dans 2 à 5 minutes.';
+      } else if (data.type === 'OUT_OF_STOCK') {
+        cleanError = 'Rupture de stock temporaire pour Instagram (USA) chez SMSPool. Réessaye dans quelques minutes.';
+      } else if (data.message) {
+        cleanError = data.message.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+      } else if (data.errors && Array.isArray(data.errors)) {
+        cleanError = data.errors.map(e => e.message).join(' | ');
+      }
+    }
+    console.error('❌ SMSPool getTemporaryNumber error:', cleanError);
+    return { success: false, error: cleanError };
   }
 }
 
@@ -94,6 +107,9 @@ async function cancelSMS(orderId) {
     });
     return { success: true, data: response.data };
   } catch (err) {
+    if (err.response && err.response.data && err.response.data.message) {
+      return { success: false, error: err.response.data.message };
+    }
     return { success: false, error: err.message };
   }
 }

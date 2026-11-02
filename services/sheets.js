@@ -31,8 +31,8 @@ function initSheets() {
 }
 
 /**
- * Ajoute un compte IG dans le Google Sheet
- * @param {Array} rowData - [VA, Username IG, Profile ID, OS, Date, Password, 2FA, Deeplink]
+ * Ajoute un compte IG dans le Google Sheet "Compte insta"
+ * @param {Array} rowData - Array formaté pour les colonnes A à M
  */
 async function appendAccountToSheet(rowData) {
   if (!sheetsClient) sheetsClient = initSheets();
@@ -41,22 +41,47 @@ async function appendAccountToSheet(rowData) {
     return;
   }
 
-  const sheetId = process.env.GOOGLE_SHEET_ID;
+  const sheetId = process.env.GOOGLE_SHEET_COMPTES_ID;
   if (!sheetId) {
-    console.warn('⚠️ GOOGLE_SHEET_ID non défini dans .env');
+    console.warn('⚠️ GOOGLE_SHEET_COMPTES_ID non défini dans .env');
     return;
   }
 
   try {
-    await sheetsClient.spreadsheets.values.append({
+    // 1. Lire la colonne C (Nom d'utilisateur) pour trouver la première case vide
+    const res = await sheetsClient.spreadsheets.values.get({
       spreadsheetId: sheetId,
-      range: 'A:H', // Ajouter à la première colonne vide trouvée de A à H
+      range: 'Compte insta!A:C'
+    });
+    
+    const rows = res.data.values || [];
+    let emptyRowIndex = 4; // On commence à chercher à la ligne 4 par défaut (index 3 mais 1-based pour Sheets)
+    
+    for (let i = 3; i < rows.length; i++) {
+      if (!rows[i][2] || rows[i][2].trim() === '') {
+        emptyRowIndex = i + 1;
+        break;
+      }
+    }
+    // Si toutes les lignes lues sont pleines, on ajoute à la fin (rows.length + 1)
+    if (emptyRowIndex === 4 && rows.length >= 4) {
+      if (rows[rows.length - 1][2] && rows[rows.length - 1][2].trim() !== '') {
+         emptyRowIndex = rows.length + 1;
+      }
+    }
+
+    // 2. Mettre à jour cette ligne précise
+    const targetRange = `Compte insta!A${emptyRowIndex}:M${emptyRowIndex}`;
+    await sheetsClient.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: targetRange,
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: [rowData]
       }
     });
-    console.log(`✅ Ligne ajoutée au Google Sheet pour le compte IG: ${rowData[1]}`);
+    
+    console.log(`✅ Compte IG: ${rowData[2]} inséré à la ligne ${emptyRowIndex}`);
   } catch (err) {
     console.error('❌ Erreur lors de l\'ajout au Google Sheet:', err.message);
   }
@@ -168,4 +193,29 @@ async function getRandomTextFromSheet(market, column) {
   }
 }
 
-module.exports = { initSheets, appendAccountToSheet, removeAccountFromSheet, syncAllAccountsToSheet, getRandomTextFromSheet };
+async function getRandomTextFromCustomSheet(sheetId, tabName, column) {
+  if (!sheetsClient) sheetsClient = initSheets();
+  if (!sheetsClient) throw new Error("Google Sheets non configuré");
+
+  try {
+    const range = tabName ? `'${tabName}'!${column}2:${column}` : `${column}2:${column}`;
+    const res = await sheetsClient.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: range,
+    });
+    
+    const rows = res.data.values;
+    if (!rows || rows.length === 0) throw new Error(`Aucune donnée dans la colonne ${column}`);
+    
+    const validTexts = rows.map(r => r[0]).filter(t => t && t.trim() !== '');
+    if (validTexts.length === 0) throw new Error(`Aucun texte valide dans la colonne ${column}`);
+    
+    const randomIndex = Math.floor(Math.random() * validTexts.length);
+    return validTexts[randomIndex];
+  } catch (err) {
+    console.error(`Erreur getRandomTextFromCustomSheet (${sheetId}, ${tabName}, ${column}):`, err.message);
+    throw err;
+  }
+}
+
+module.exports = { initSheets, appendAccountToSheet, removeAccountFromSheet, syncAllAccountsToSheet, getRandomTextFromSheet, getRandomTextFromCustomSheet };

@@ -25,6 +25,7 @@ function initDatabase() {
       channel_id    TEXT UNIQUE NOT NULL,
       statut        TEXT DEFAULT 'actif',
       notes         TEXT,
+      telegram_id   TEXT UNIQUE,
       created_at    TEXT DEFAULT (datetime('now')),
       updated_at    TEXT DEFAULT (datetime('now'))
     );
@@ -69,6 +70,12 @@ function initDatabase() {
     );
   `);
 
+  try {
+    db.exec("ALTER TABLE vas ADD COLUMN telegram_id TEXT;");
+  } catch (e) {
+    // Ignore si la colonne existe déjà
+  }
+
   console.log('✅ Base de données initialisée (node:sqlite)');
 }
 
@@ -85,10 +92,12 @@ function getVaQueries() {
     create: db.prepare(`INSERT INTO vas (discord_id, username, channel_id, statut) VALUES (:discord_id, :username, :channel_id, :statut)`),
     getByChannel:   db.prepare(`SELECT * FROM vas WHERE channel_id = ?`),
     getByDiscordId: db.prepare(`SELECT * FROM vas WHERE discord_id = ?`),
+    getByTelegramId: db.prepare(`SELECT * FROM vas WHERE telegram_id = ?`),
     getById:        db.prepare(`SELECT * FROM vas WHERE id = ?`),
     getAll:         db.prepare(`SELECT * FROM vas WHERE statut != 'banni' ORDER BY username`),
     getActifs:      db.prepare(`SELECT * FROM vas WHERE statut = 'actif'`),
     update:         db.prepare(`UPDATE vas SET discord_id = :discord_id, username = :username, statut = :statut, notes = :notes WHERE id = :id`),
+    linkTelegram:   db.prepare(`UPDATE vas SET telegram_id = ? WHERE id = ?`),
     delete:         db.prepare(`DELETE FROM vas WHERE id = ?`),
     updateStatut:   db.prepare(`UPDATE vas SET statut = ?, updated_at = datetime('now') WHERE id = ?`),
   };
