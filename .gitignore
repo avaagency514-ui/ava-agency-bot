@@ -37,3 +37,5 @@ make_icon.py
 *.log
 __pycache__/
 *.pyc
+desktop.ini
+thumbs.db
