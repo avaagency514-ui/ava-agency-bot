@@ -162,20 +162,43 @@ function seedDatabaseIfNeeded(db) {
       const mergedSubs = db.prepare(`
         UPDATE tg_subs
         SET va_name = 'malachie twitter fr'
-        WHERE va_name = 'malachi twitter fr'
+        WHERE LOWER(va_name) LIKE 'malachi %' AND LOWER(va_name) NOT LIKE 'malachie %'
       `).run();
-      if (mergedSubs.changes > 0) {
-        console.log(`✅ [Seed] ${mergedSubs.changes} subs de 'malachi' fusionnés vers 'malachie twitter fr' !`);
+      const mergedSubs2 = db.prepare(`
+        UPDATE tg_subs
+        SET va_name = 'malachie twitter fr'
+        WHERE LOWER(va_name) = 'malachi'
+      `).run();
+      const mergedLinks = db.prepare(`
+        UPDATE tg_invite_links
+        SET va_name = 'malachie twitter fr'
+        WHERE LOWER(va_name) LIKE 'malachi %' AND LOWER(va_name) NOT LIKE 'malachie %'
+      `).run();
+      if ((mergedSubs.changes + mergedSubs2.changes + mergedLinks.changes) > 0) {
+        console.log(`✅ [Seed] Fusion malachi→malachie: ${mergedSubs.changes + mergedSubs2.changes} subs, ${mergedLinks.changes} liens`);
       }
-      db.prepare(`
-        DELETE FROM tg_invite_links WHERE va_name = 'malachi twitter fr'
-      `).run();
+      // Nettoyer les doublons dans tg_invite_links après fusion (malachi/malachie sur le même canal)
+      db.exec(`
+        DELETE FROM tg_invite_links
+        WHERE id NOT IN (
+          SELECT MIN(id) FROM tg_invite_links GROUP BY va_name, canal
+        )
+      `);
     } catch (e) {
       console.warn('Fusion malachi:', e.message);
     }
 
     // 9. Suppression immédiate des liens révoqués ou supprimés sur Telegram
     try {
+      // 9a. URLs tronquées (placeholder avec '...' ou longueur < 25 chars) → inutilisables
+      const purgeTrunc = db.prepare(`
+        DELETE FROM tg_invite_links WHERE invite_link LIKE '%...%' OR length(invite_link) < 25
+      `).run();
+      if (purgeTrunc.changes > 0) {
+        console.log(`🗑️ [Seed] ${purgeTrunc.changes} URLs tronquées/inutilisables supprimées de tg_invite_links.`);
+      }
+
+      // 9b. Liste explicite d'URLs connues comme mortes/révoquées
       const deadUrls = [
         'https://t.me/+x0y1x8zC...',
         'https://t.me/+8cS8miru...',

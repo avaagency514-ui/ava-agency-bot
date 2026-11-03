@@ -272,16 +272,34 @@ function isInviteLinkActive(url) {
 async function purgeDeadInviteLinks() {
   const links = getAllInviteLinks();
   const deleted = [];
+  const skipped = [];
+
   for (const l of links) {
-    const active = await isInviteLinkActive(l.invite_link);
+    const url = l.invite_link || '';
+
+    // 1. Supprimer immédiatement les URLs tronquées (placeholder avec '...')
+    if (url.includes('...') || url.length < 25) {
+      db.prepare(`DELETE FROM tg_invite_links WHERE id = ?`).run(l.id);
+      deleted.push(l);
+      console.log(`🗑️ [TG Tracker] URL tronquée/inutilisable supprimée : [${l.canal}] ${l.va_name} (${url})`);
+      continue;
+    }
+
+    // 2. Pour les vraies URLs complètes, tester si le lien est encore actif
+    if (!url.startsWith('https://t.me/+')) {
+      skipped.push(l);
+      continue;
+    }
+
+    const active = await isInviteLinkActive(url);
     if (!active) {
       db.prepare(`DELETE FROM tg_invite_links WHERE id = ?`).run(l.id);
       deleted.push(l);
-      console.log(`🧹 [TG Tracker] Lien révoqué/supprimé retiré de la base : [${l.canal}] ${l.va_name} (${l.invite_link})`);
+      console.log(`🧹 [TG Tracker] Lien révoqué/supprimé retiré de la base : [${l.canal}] ${l.va_name} (${url})`);
     }
-    await new Promise(r => setTimeout(r, 50));
+    await new Promise(r => setTimeout(r, 200));
   }
-  return { checked: links.length, purged: deleted.length, remaining: links.length - deleted.length, deleted };
+  return { checked: links.length, purged: deleted.length, skipped: skipped.length, remaining: links.length - deleted.length, deleted };
 }
 
 // ─── Bot Telegram singleton ───────────────────────────────────────────────────
@@ -704,8 +722,9 @@ function buildRemunerationSection(linkMap = {}, todayVaMap = {}) {
   const month = new Date().toLocaleString('fr-FR', { month: 'long', year: 'numeric' });
 
   // Récupérer toutes les VAs distinctes qui ont des subs ou des liens sur le canal FR
-  const vasFromSubs = db.prepare(`SELECT DISTINCT va_name FROM tg_subs WHERE va_name != 'Lien direct/public' AND canal = 'FR'`).all().map(r => r.va_name);
-  const vasFromLinks = db.prepare(`SELECT DISTINCT va_name FROM tg_invite_links WHERE canal = 'FR'`).all().map(r => r.va_name);
+  // On normalise les noms pour fusionner malachi/malachie et autres variantes
+  const vasFromSubs = db.prepare(`SELECT DISTINCT va_name FROM tg_subs WHERE va_name != 'Lien direct/public' AND canal = 'FR'`).all().map(r => normalizeVaName(r.va_name));
+  const vasFromLinks = db.prepare(`SELECT DISTINCT va_name FROM tg_invite_links WHERE canal = 'FR'`).all().map(r => normalizeVaName(r.va_name));
   const vaSet = new Set([...vasFromSubs, ...vasFromLinks]);
 
   const allReports = [...vaSet].map(vaName => {

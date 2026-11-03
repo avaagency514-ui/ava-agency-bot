@@ -12,6 +12,17 @@
 
 const { db } = require('../database/db');
 
+// ─── Normalisation locale des noms de VAs (miroir de tgTracker.normalizeVaName) ─
+// (Dupliquée ici pour éviter l'import circulaire tgTracker ↔ tgRemuneration)
+function normalizeVaNameLocal(name) {
+  if (!name) return 'Lien direct/public';
+  let cleaned = name.trim();
+  if (/^malachi(\s+|$)/i.test(cleaned)) {
+    cleaned = cleaned.replace(/^malachi/i, 'malachie');
+  }
+  return cleaned;
+}
+
 // ─── Initialisation de la table ──────────────────────────────────────────────
 function initRemunerationTable() {
   db.exec(`
@@ -35,12 +46,24 @@ function getOrCreateVA(vaName) {
   return db.prepare(`SELECT * FROM tg_remuneration WHERE va_name = ?`).get(vaName);
 }
 
+// ─── Normalisation SQL inline des noms de VAs (cohérence avec tgTracker.js) ──
+function vaNameCondition(vaName) {
+  // Cherche aussi les variantes orthographiques (ex: malachi = malachie)
+  const variants = [vaName];
+  if (vaName.toLowerCase().startsWith('malachie ')) {
+    variants.push('malachi' + vaName.slice('malachie'.length));
+  }
+  return variants;
+}
+
 // ─── Compter les subs valides (cumulatif depuis le début — FRANCE UNIQUEMENT) 
 function getEligibleSubsCount(vaName) {
+  const variants = vaNameCondition(vaName);
+  const placeholders = variants.map(() => '?').join(',');
   const row = db.prepare(`
     SELECT COUNT(*) as cnt FROM tg_subs 
-    WHERE va_name = ? AND eligible = 1 AND canal = 'FR' AND ts <= datetime('now', 'localtime')
-  `).get(vaName);
+    WHERE va_name IN (${placeholders}) AND eligible = 1 AND canal = 'FR' AND ts <= datetime('now', 'localtime')
+  `).get(...variants);
   return row ? row.cnt : 0;
 }
 
@@ -90,12 +113,13 @@ function buildVAReport(vaName) {
 // ─── Rapport global de toutes les VAs ────────────────────────────────────────
 function buildAllVAsReport() {
   // On prend toutes les VAs actives + toutes celles qui ont des subs sur le canal FR
+  // Normalisation pour éviter les doublons malachi/malachie
   const vasFromSubs = db.prepare(`
     SELECT DISTINCT va_name FROM tg_subs 
     WHERE va_name != 'Lien direct/public' AND canal = 'FR' AND ts <= datetime('now', 'localtime')
-  `).all().map(r => r.va_name);
+  `).all().map(r => normalizeVaNameLocal(r.va_name));
 
-  const vasFromTable = db.prepare(`SELECT DISTINCT va_name FROM tg_remuneration`).all().map(r => r.va_name);
+  const vasFromTable = db.prepare(`SELECT DISTINCT va_name FROM tg_remuneration`).all().map(r => normalizeVaNameLocal(r.va_name));
 
   // Union des deux sans doublons
   const allVAs = [...new Set([...vasFromSubs, ...vasFromTable])].sort();
