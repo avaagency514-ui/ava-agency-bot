@@ -174,6 +174,30 @@ function seedDatabaseIfNeeded(db) {
       console.warn('Fusion malachi:', e.message);
     }
 
+    // 9. Suppression immédiate des liens révoqués ou supprimés sur Telegram
+    try {
+      const deadUrls = [
+        'https://t.me/+x0y1x8zC...',
+        'https://t.me/+8cS8miru...',
+        'https://t.me/+-Q-LLI6h...',
+        'https://t.me/+DaVowkpB...',
+        'https://t.me/+lc1eppRa...',
+        'https://t.me/+0OCitLYu...',
+        'https://t.me/+oNrhAbZu...',
+        'https://t.me/+CKyjT3lY...',
+        'https://t.me/+9yRNyFk9...',
+        'https://t.me/+BiIEmLZR...',
+        'https://t.me/+sZyc34G8...'
+      ];
+      const placeholders = deadUrls.map(() => '?').join(',');
+      const purged = db.prepare(`DELETE FROM tg_invite_links WHERE invite_link IN (${placeholders})`).run(...deadUrls);
+      if (purged.changes > 0) {
+        console.log(`🧹 [Seed] ${purged.changes} anciens liens supprimés purgés de la base de données.`);
+      }
+    } catch (e) {
+      console.warn('Purge dead links error:', e.message);
+    }
+
     db.exec('COMMIT;');
 
     const finalLinks = db.prepare("SELECT count(*) as c FROM tg_invite_links").get()?.c || 0;

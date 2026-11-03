@@ -18,6 +18,7 @@
 
 'use strict';
 
+const https = require('https');
 const TelegramBot = require('node-telegram-bot-api');
 const { db } = require('../database/db');
 const { initRemunerationTable, buildVAReport, getOrCreateVA } = require('./tgRemuneration');
@@ -237,6 +238,50 @@ function getAllInviteLinks() {
 
 function getInviteLinkForVa(vaName, canal) {
   return db.prepare(`SELECT * FROM tg_invite_links WHERE va_name = ? AND canal = ?`).get(vaName, canal);
+}
+
+// ─── Vérification en temps réel de la validité d'un lien Telegram ───────────
+function isInviteLinkActive(url) {
+  if (!url || !url.startsWith('https://t.me/+')) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const req = https.get(url, { timeout: 4000 }, (res) => {
+      let data = '';
+      res.on('data', chunk => {
+        data += chunk;
+        if (data.length > 20000) req.destroy();
+      });
+      res.on('end', () => {
+        const isKim = data.includes('Canal de Kim') || data.includes('Kim');
+        const isJoin = data.includes('tgme_action_button_new') || data.includes('Join Channel') || data.includes('Rejoindre');
+        const isExpired = data.includes('Expired Link') || data.includes('Join group chat on Telegram') || data.includes('lien a expiré');
+        resolve(isKim && isJoin && !isExpired);
+      });
+      res.on('close', () => {
+        const isKim = data.includes('Canal de Kim') || data.includes('Kim');
+        const isJoin = data.includes('tgme_action_button_new') || data.includes('Join Channel') || data.includes('Rejoindre');
+        const isExpired = data.includes('Expired Link') || data.includes('Join group chat on Telegram') || data.includes('lien a expiré');
+        resolve(isKim && isJoin && !isExpired);
+      });
+    });
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+    req.on('error', () => resolve(false));
+  });
+}
+
+// ─── Purge automatique de tous les liens supprimés ou révoqués ────────────────
+async function purgeDeadInviteLinks() {
+  const links = getAllInviteLinks();
+  const deleted = [];
+  for (const l of links) {
+    const active = await isInviteLinkActive(l.invite_link);
+    if (!active) {
+      db.prepare(`DELETE FROM tg_invite_links WHERE id = ?`).run(l.id);
+      deleted.push(l);
+      console.log(`🧹 [TG Tracker] Lien révoqué/supprimé retiré de la base : [${l.canal}] ${l.va_name} (${l.invite_link})`);
+    }
+    await new Promise(r => setTimeout(r, 50));
+  }
+  return { checked: links.length, purged: deleted.length, remaining: links.length - deleted.length, deleted };
 }
 
 // ─── Bot Telegram singleton ───────────────────────────────────────────────────
@@ -825,4 +870,6 @@ module.exports = {
   ALLOWED_LANGS,
   analyzeSubscriber,
   auditActiveMembers,
+  purgeDeadInviteLinks,
+  isInviteLinkActive,
 };

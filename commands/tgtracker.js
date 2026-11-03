@@ -81,6 +81,28 @@ module.exports = {
     .addSubcommand(sub =>
       sub.setName('audit')
         .setDescription('Vérifie la présence réelle de tous les membres sur le canal et élimine les faux/partis')
+    )
+    .addSubcommand(sub =>
+      sub.setName('purge')
+        .setDescription('Vérifie tous les liens Telegram et supprime automatiquement ceux qui sont révoqués/expirés')
+    )
+    .addSubcommand(sub =>
+      sub.setName('dellink')
+        .setDescription('Supprime définitivement un lien Telegram de la base de données')
+        .addStringOption(opt =>
+          opt.setName('va')
+            .setDescription('Nom de la VA (ex: Richid twitter, Titi...)')
+            .setRequired(true)
+        )
+        .addStringOption(opt =>
+          opt.setName('canal')
+            .setDescription('Canal ciblé (optionnel)')
+            .setRequired(false)
+            .addChoices(
+              { name: '🇫🇷 Canal FR', value: 'FR' },
+              { name: '🇺🇸 Canal US', value: 'US' }
+            )
+        )
     ),
 
   async execute(interaction) {
@@ -94,7 +116,7 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true });
 
     try {
-      const { sendDailyTrackerReport, getTodayStats, getAllInviteLinks, createLinksForAllVAs, auditActiveMembers, getTrackerBot } = require('../services/tgTracker');
+      const { sendDailyTrackerReport, getTodayStats, getAllInviteLinks, createLinksForAllVAs, auditActiveMembers, getTrackerBot, purgeDeadInviteLinks } = require('../services/tgTracker');
       const { buildAllVAsReport } = require('../services/tgRemuneration');
 
       if (sub === 'audit') {
@@ -210,10 +232,11 @@ module.exports = {
 
       } else if (sub === 'sync') {
         await interaction.editReply({
-          embeds: [new EmbedBuilder().setColor(0xf39c12).setTitle('🔄 Sync en cours...').setDescription('Création/vérification des liens pour toutes les VAs actives...')]
+          embeds: [new EmbedBuilder().setColor(0xf39c12).setTitle('🔄 Sync & Nettoyage en cours...').setDescription('Vérification en direct sur Telegram et purge des liens supprimés...')]
         });
         const { db, seedDatabaseIfNeeded } = require('../database/db');
         if (typeof seedDatabaseIfNeeded === 'function') seedDatabaseIfNeeded(db);
+        const purgeRes = await purgeDeadInviteLinks();
         await createLinksForAllVAs();
         const links = getAllInviteLinks();
         const frLinks = links.filter(l => l.canal === 'FR');
@@ -222,8 +245,53 @@ module.exports = {
           embeds: [
             new EmbedBuilder()
               .setColor(0x00ff88)
-              .setTitle('✅ Synchronisation terminée')
-              .setDescription(`🎯 **${frLinks.length} lien(s) FR (France)** enregistrés en base.\n*(Total : ${links.length} liens actifs avec l'US)*\n\nUtilise \`/tgtracker liens\` pour les afficher.`)
+              .setTitle('✅ Synchronisation & Nettoyage terminés')
+              .setDescription(`🧹 **${purgeRes.purged} lien(s) supprimé(s)/révoqué(s)** purgés de la base de données.\n` +
+                             `🎯 **${frLinks.length} lien(s) FR (France) 100% actifs** enregistrés.\n` +
+                             `*(Total actif : ${links.length} liens avec l'US)*\n\n` +
+                             `Utilise \`/tgtracker liens\` pour afficher la liste à jour.`)
+          ]
+        });
+
+      } else if (sub === 'purge') {
+        await interaction.editReply({
+          embeds: [new EmbedBuilder().setColor(0xf39c12).setTitle('🧹 Purge des liens en cours...').setDescription('Test de validité de chaque lien sur les serveurs de Telegram...')]
+        });
+        const purgeRes = await purgeDeadInviteLinks();
+        const remainingLinks = getAllInviteLinks();
+        const remainingFr = remainingLinks.filter(l => l.canal === 'FR');
+        return interaction.editReply({
+          embeds: [
+            new EmbedBuilder()
+              .setColor(0x00ff88)
+              .setTitle('🧹 Nettoyage des liens Telegram terminé')
+              .setDescription(`• Liens testés : **${purgeRes.checked}**\n` +
+                             `• Liens supprimés/expirés retirés : **${purgeRes.purged}**\n` +
+                             `• Liens toujours valides et actifs : **${remainingLinks.length}** (dont **${remainingFr.length} FR**)\n\n` +
+                             (purgeRes.deleted.length > 0 ? `*Liens retirés de la base :*\n${purgeRes.deleted.map(d => `• \`[${d.canal}] ${d.va_name}\``).join('\n')}` : `*Tous les liens enregistrés sont valides et actifs !*`))
+          ]
+        });
+
+      } else if (sub === 'dellink') {
+        const vaName = interaction.options.getString('va').trim();
+        const canal  = interaction.options.getString('canal');
+        const { db } = require('../database/db');
+
+        let res;
+        if (canal) {
+          res = db.prepare(`DELETE FROM tg_invite_links WHERE LOWER(va_name) = LOWER(?) AND canal = ?`).run(vaName, canal);
+        } else {
+          res = db.prepare(`DELETE FROM tg_invite_links WHERE LOWER(va_name) = LOWER(?)`).run(vaName);
+        }
+
+        return interaction.editReply({
+          embeds: [
+            new EmbedBuilder()
+              .setColor(res.changes > 0 ? 0x00ff88 : 0xf39c12)
+              .setTitle(res.changes > 0 ? '🗑️ Lien supprimé avec succès' : '⚠️ Aucun lien trouvé')
+              .setDescription(res.changes > 0 
+                ? `**${res.changes} lien(s)** pour **${vaName}** ${canal ? `[${canal}]` : ''} retiré(s) de la base de données.`
+                : `Aucun lien enregistré trouvé en base pour **${vaName}** ${canal ? `[${canal}]` : ''}.`)
           ]
         });
 
