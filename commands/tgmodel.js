@@ -127,15 +127,15 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    await interaction.deferReply({ ephemeral: true });
+
     if (!isUserFounder(interaction)) {
-      return interaction.reply({
-        content: '⛔ Cette commande est strictement réservée aux fondateurs de l\'agence.',
-        ephemeral: true
+      return interaction.editReply({
+        content: '⛔ Cette commande est strictement réservée aux fondateurs de l\'agence.'
       });
     }
 
     const sub = interaction.options.getSubcommand();
-    await interaction.deferReply({ ephemeral: true });
 
     try {
       if (sub === 'status') {
