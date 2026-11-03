@@ -30,6 +30,9 @@ COPY . .
 
 # Expose ports
 ENV PORT=8080
+ENV TIMEZONE=Europe/Paris
+ENV TG_REPORT_HEURE=0
+ENV TG_REPORT_MINUTE=0
 EXPOSE 8080 5000
 
 # Make start script executable and fix line endings
