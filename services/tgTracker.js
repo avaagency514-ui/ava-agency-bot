@@ -23,12 +23,11 @@ const TelegramBot = require('node-telegram-bot-api');
 const { db } = require('../database/db');
 const { initRemunerationTable, buildVAReport, getOrCreateVA } = require('./tgRemuneration');
 
-// ─── Langues ACCEPTÉES : Français & Occidentaux (FR, EN, etc.) ─────────────
-const ALLOWED_LANGS = new Set(['fr', 'en']);
+// ─── Langues ACCEPTÉES : Français uniquement ─────────────────────────────────
+const ALLOWED_LANGS = new Set(['fr']);
 
 const LANG_TO_COUNTRY = {
   fr: 'France (FR)',
-  en: 'France (FR)',
 };
 
 // ─── Régions EXPLICITEMENT exclues (Asie, Inde, Afrique non-francophone, etc.) ───
@@ -105,6 +104,15 @@ function analyzeSubscriber({ user, canal = 'FR', hasAvatar = false }) {
     };
   }
 
+  // 3b. Langue anglaise explicitement exclue (hors cible : Canal France uniquement)
+  if (langRaw === 'en') {
+    return {
+      eligible: false,
+      country: 'Anglophone (EN)',
+      reason: 'Langue anglaise — hors cible (Canal France uniquement)',
+    };
+  }
+
   // 4. Détection de comptes sans lettres ou nom trop court (< 2 lettres)
   const lettersOnly = text.replace(/[^a-zA-Z\u00C0-\u024F]/g, '');
   if (lettersOnly.length < 2) {
@@ -115,13 +123,12 @@ function analyzeSubscriber({ user, canal = 'FR', hasAvatar = false }) {
     };
   }
 
-  // 5. TOUT PROFIL OCCIDENTAL (Français, Anglais ou langue non renseignée, avec ou sans photo)
-  // EST DÉSORMAIS VALIDÉ POUR LES VAs !
-  // (La majorité des vrais abonnés n'ont pas d'avatar public ou ont leur appli en EN)
+  // 5. TOUT PROFIL OCCIDENTAL avec langue FR ou langue non renseignée → VALIDÉ
+  // (langue 'en' explicitement rejetée — Canal France uniquement)
   return {
     eligible: true,
     country: 'France (FR)',
-    reason: langRaw === 'fr' ? 'Langue française validée (FR)' : 'Profil occidental validé (Canal FR)',
+    reason: langRaw === 'fr' ? 'Langue française validée (FR)' : 'Profil occidental validé (langue non renseignée)',
   };
 }
 
