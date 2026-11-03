@@ -19,5 +19,15 @@ else
     exit 1
 fi
 
+echo "=== Demarrage Telegram Welcome Bot (Kim 💖) ==="
+cd /app/telegram/welcome
+python3 -u run_welcome.py &
+cd /app
+
+echo "=== Demarrage Telegram Planning Bot (Kim 💖) ==="
+cd /app/telegram/planning
+python3 -u run_planning.py &
+cd /app
+
 echo "=== Demarrage AVA Agency Bot (Node.js) ==="
 node /app/index.js

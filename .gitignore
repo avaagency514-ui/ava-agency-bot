@@ -35,3 +35,5 @@ list_*.js
 force-alter.js
 make_icon.py
 *.log
+__pycache__/
+*.pyc

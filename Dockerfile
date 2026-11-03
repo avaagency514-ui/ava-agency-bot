@@ -24,7 +24,7 @@ COPY package*.json ./
 RUN npm install
 
 # Cache bust - force rebuild of code layer
-ARG CACHEBUST=7
+ARG CACHEBUST=8
 # Copy all source code
 COPY . .
 
@@ -32,8 +32,8 @@ COPY . .
 ENV PORT=8080
 EXPOSE 8080 5000
 
-# Make start script executable
-RUN chmod +x start.sh
+# Make start script executable and fix line endings
+RUN sed -i 's/\r$//' start.sh && chmod +x start.sh
 
 # Start both services
 CMD ["./start.sh"]
