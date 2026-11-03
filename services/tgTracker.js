@@ -158,8 +158,20 @@ function initTrackerTable() {
   try { db.exec(`ALTER TABLE tg_subs ADD COLUMN has_avatar INTEGER NOT NULL DEFAULT 0`); } catch {}
 }
 
+// ─── Normalisation des noms de VAs (correction des fautes de frappe) ────────
+function normalizeVaName(name) {
+  if (!name) return 'Lien direct/public';
+  let cleaned = name.trim();
+  // Correction automatique : "malachi twitter fr" -> "malachie twitter fr"
+  if (/^malachi(\s+|$)/i.test(cleaned)) {
+    cleaned = cleaned.replace(/^malachi/i, 'malachie');
+  }
+  return cleaned;
+}
+
 // ─── Requêtes DB ─────────────────────────────────────────────────────────────
 function recordSub({ userId, fullName, username, language, vaName, canal, eligible, country, inviteLink, hasAvatar = false }) {
+  const canonicalVa = normalizeVaName(vaName);
   db.prepare(`
     INSERT INTO tg_subs (user_id, full_name, username, language, va_name, canal, eligible, country, invite_link, has_avatar)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -168,7 +180,7 @@ function recordSub({ userId, fullName, username, language, vaName, canal, eligib
     fullName || '',
     username || '',
     language || 'inconnue',
-    vaName,
+    canonicalVa,
     canal,
     eligible ? 1 : 0,
     country || '',
@@ -207,11 +219,12 @@ function markReported() {
 
 function saveInviteLink(vaName, canal, link) {
   if (!vaName || !canal || !link) return;
+  const canonicalVa = normalizeVaName(vaName);
   db.prepare(`
     INSERT INTO tg_invite_links (va_name, canal, invite_link)
     VALUES (?, ?, ?)
     ON CONFLICT(va_name, canal) DO UPDATE SET invite_link = excluded.invite_link, created_at = datetime('now')
-  `).run(vaName, canal, link);
+  `).run(canonicalVa, canal, link);
 }
 
 function deleteInviteLinks(vaName) {
@@ -388,7 +401,7 @@ async function startTgTracker(discordClient) {
 
       if (data.invite_link) {
         if (data.invite_link.name) {
-          vaName = data.invite_link.name.replace(/^\[(FR|US)\]\s*/i, '').trim();
+          vaName = normalizeVaName(data.invite_link.name.replace(/^\[(FR|US)\]\s*/i, '').trim());
         }
         if (data.invite_link.invite_link) {
           inviteLinkUrl = data.invite_link.invite_link;
@@ -571,17 +584,18 @@ async function sendDailyTrackerReport(discordClient) {
     // Grouper par VA / Nom du lien
     const vaMap = {};
     for (const r of canalRows) {
-      if (!vaMap[r.va_name]) {
-        vaMap[r.va_name] = {
+      const vaKey = normalizeVaName(r.va_name);
+      if (!vaMap[vaKey]) {
+        vaMap[vaKey] = {
           total: 0,
           ok: 0,
           ko: 0,
           okCountries: {},
           koReasons: {},
-          inviteLink: r.invite_link || (linkMap[r.va_name] && linkMap[r.va_name][canal.code]) || null
+          inviteLink: r.invite_link || (linkMap[vaKey] && linkMap[vaKey][canal.code]) || null
         };
       }
-      const s = vaMap[r.va_name];
+      const s = vaMap[vaKey];
       s.total++;
       if (r.eligible) {
         s.ok++;
@@ -780,13 +794,18 @@ function buildRemunerationSection(linkMap = {}, todayVaMap = {}) {
 function getTodayStats() {
   const today = new Date().toISOString().split('T')[0];
   return db.prepare(`
-    SELECT canal, va_name,
+    SELECT canal,
+           CASE
+             WHEN LOWER(va_name) LIKE 'malachi %' THEN 'malachie ' || SUBSTR(va_name, 9)
+             WHEN LOWER(va_name) = 'malachi' THEN 'malachie twitter fr'
+             ELSE va_name
+           END as va_name,
            COUNT(*) as total,
            SUM(eligible) as ok,
            SUM(CASE WHEN eligible = 0 THEN 1 ELSE 0 END) as ko
     FROM tg_subs
     WHERE canal = 'FR' AND (report_sent = 0 OR ts >= ?)
-    GROUP BY canal, va_name
+    GROUP BY canal, 2
     ORDER BY canal, total DESC
   `).all(today + ' 00:00:00');
 }

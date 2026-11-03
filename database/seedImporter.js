@@ -157,6 +157,23 @@ function seedDatabaseIfNeeded(db) {
       console.warn('Reclassification subs:', e.message);
     }
 
+    // 8. Unification des variantes d'orthographe (ex: malachi twitter fr -> malachie twitter fr)
+    try {
+      const mergedSubs = db.prepare(`
+        UPDATE tg_subs
+        SET va_name = 'malachie twitter fr'
+        WHERE va_name = 'malachi twitter fr'
+      `).run();
+      if (mergedSubs.changes > 0) {
+        console.log(`✅ [Seed] ${mergedSubs.changes} subs de 'malachi' fusionnés vers 'malachie twitter fr' !`);
+      }
+      db.prepare(`
+        DELETE FROM tg_invite_links WHERE va_name = 'malachi twitter fr'
+      `).run();
+    } catch (e) {
+      console.warn('Fusion malachi:', e.message);
+    }
+
     db.exec('COMMIT;');
 
     const finalLinks = db.prepare("SELECT count(*) as c FROM tg_invite_links").get()?.c || 0;
