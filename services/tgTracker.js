@@ -513,6 +513,34 @@ async function startTgTracker(discordClient) {
   const labels = Object.entries(canalMap).map(([id, l]) => `${l}: ${id}`).join(' | ');
   console.log(`✅ TG Tracker ACTIF pour le canal Français: ${labels}`);
   console.log(`   🛡️ Filtre anti-fraude: France uniquement (US, Inde, Afrique/Maghreb et autres écartés)`);
+
+  // ─── Boucle automatique toutes les heures ─────────────────────────────────
+  // 1. sync  → crée les liens manquants pour chaque VA (si nouveau lien ou VA ajoutée)
+  // 2. purge → supprime les liens révoqués/supprimés de Telegram de la base
+  const AUTO_INTERVAL_MS = 60 * 60 * 1000; // 1 heure
+  async function autoSyncAndPurge() {
+    try {
+      console.log('🔄 [Auto] Démarrage sync + purge des liens Telegram...');
+      // Sync : crée les liens manquants pour toutes les VAs
+      await createLinksForAllVAs();
+      console.log('✅ [Auto] Sync terminé.');
+
+      // Purge : supprime les liens révoqués ou tronqués
+      const result = await purgeDeadInviteLinks();
+      console.log(`🧹 [Auto] Purge terminée : ${result.purged} lien(s) supprimé(s) / ${result.checked} vérifiés.`);
+    } catch (err) {
+      console.error('❌ [Auto] Erreur lors du sync/purge automatique :', err.message);
+    }
+  }
+
+  // Première exécution après 5 minutes (laisser le bot démarrer proprement)
+  setTimeout(() => {
+    autoSyncAndPurge();
+    // Ensuite toutes les heures
+    setInterval(autoSyncAndPurge, AUTO_INTERVAL_MS);
+  }, 5 * 60 * 1000);
+
+  console.log('⏰ [Auto] Boucle sync + purge des liens Telegram programmée toutes les heures.');
 }
 
 // ─── Helpers découpage messages Discord ───────────────────────────────────────
