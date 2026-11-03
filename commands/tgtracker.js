@@ -212,16 +212,18 @@ module.exports = {
         await interaction.editReply({
           embeds: [new EmbedBuilder().setColor(0xf39c12).setTitle('🔄 Sync en cours...').setDescription('Création/vérification des liens pour toutes les VAs actives...')]
         });
-        const { ensureDatabaseSeeded } = require('../database/db');
-        if (typeof ensureDatabaseSeeded === 'function') ensureDatabaseSeeded();
+        const { db, seedDatabaseIfNeeded } = require('../database/db');
+        if (typeof seedDatabaseIfNeeded === 'function') seedDatabaseIfNeeded(db);
         await createLinksForAllVAs();
         const links = getAllInviteLinks();
+        const frLinks = links.filter(l => l.canal === 'FR');
+
         return interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setColor(0x00ff88)
               .setTitle('✅ Synchronisation terminée')
-              .setDescription(`${links.length} lien(s) présent(s) en base.\nUtilise \`/tgtracker liens\` pour les voir.`)
+              .setDescription(`🎯 **${frLinks.length} lien(s) FR (France)** enregistrés en base.\n*(Total : ${links.length} liens actifs avec l'US)*\n\nUtilise \`/tgtracker liens\` pour les afficher.`)
           ]
         });
 

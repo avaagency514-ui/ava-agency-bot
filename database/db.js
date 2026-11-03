@@ -24,53 +24,7 @@ if (fs.existsSync(seedPath) && !fs.existsSync(dbPath)) {
 }
 
 const db = new DatabaseSync(dbPath);
-
-// ─── Injection / Synchronisation depuis seed_agency.db ───────────────────────
-function ensureDatabaseSeeded() {
-  if (!fs.existsSync(seedPath)) return;
-  try {
-    let linkCount = 0;
-    try {
-      const row = db.prepare("SELECT count(*) as c FROM tg_invite_links").get();
-      linkCount = row ? row.c : 0;
-    } catch {
-      linkCount = 0;
-    }
-
-    if (linkCount < 10 || process.env.FORCE_RESTORE_DB === 'true') {
-      console.log(`🔄 Base incomplète (${linkCount} liens détectés). Injection des données depuis seed_agency.db...`);
-      const normalizedSeedPath = seedPath.replace(/\\/g, '/');
-      db.exec(`ATTACH DATABASE '${normalizedSeedPath}' AS seed;`);
-
-      const tablesToSeed = [
-        'vas',
-        'tg_invite_links',
-        'tg_remuneration',
-        'tg_subs',
-        'chatters',
-        'chatter_sales',
-        'chatter_shifts',
-        'chatter_absences'
-      ];
-
-      for (const table of tablesToSeed) {
-        try {
-          db.exec(`CREATE TABLE IF NOT EXISTS "${table}" AS SELECT * FROM seed."${table}" WHERE 0;`);
-          db.exec(`INSERT OR IGNORE INTO "${table}" SELECT * FROM seed."${table}";`);
-          const count = db.prepare(`SELECT count(*) as c FROM "${table}"`).get().c;
-          console.log(`  ✅ Table ${table} synchronisée: ${count} entrées.`);
-        } catch (tableErr) {
-          console.warn(`  ⚠️ Synchronisation table ${table}:`, tableErr.message);
-        }
-      }
-
-      db.exec(`DETACH DATABASE seed;`);
-      console.log('✅ Restauration automatique terminée avec succès !');
-    }
-  } catch (err) {
-    console.error('⚠️ Erreur ensureDatabaseSeeded:', err.message);
-  }
-}
+const { seedDatabaseIfNeeded } = require('./seedImporter');
 
 // ─── Initialisation du schéma ─────────────────────────────────
 function initDatabase() {
@@ -135,7 +89,7 @@ function initDatabase() {
     // Ignore si la colonne existe déjà
   }
 
-  ensureDatabaseSeeded();
+  seedDatabaseIfNeeded(db);
 
   console.log('✅ Base de données initialisée (node:sqlite)');
 }
@@ -210,7 +164,7 @@ const alertesQueries  = new Proxy({}, { get: (_, key) => getAlertesQueries()[key
 module.exports = {
   db,
   initDatabase,
-  ensureDatabaseSeeded,
+  seedDatabaseIfNeeded,
   vaQueries,
   igQueries,
   activiteQueries,
