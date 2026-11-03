@@ -122,18 +122,21 @@ module.exports = {
           });
         }
 
-        const desc = `**🇫🇷 Canal FR (Canal de Kim 💖)**\n` +
-          links.map(l => `👤 **${l.va_name}** → \`${l.invite_link}\``).join('\n');
+        const lines = links.map(l => `👤 **${l.va_name}** → \`${l.invite_link}\``);
+        const chunks = [];
+        for (let i = 0; i < lines.length; i += 25) {
+          chunks.push(lines.slice(i, i + 25));
+        }
 
-        return interaction.editReply({
-          embeds: [
-            new EmbedBuilder()
-              .setColor(0x00aaff)
-              .setTitle('🔗 Liens d\'invitation Telegram (France) — Par VA')
-              .setDescription(desc.slice(0, 4000))
-              .setFooter({ text: 'Donne à chaque VA UNIQUEMENT son propre lien pour le canal français' })
-          ]
+        const embeds = chunks.map((chunk, idx) => {
+          return new EmbedBuilder()
+            .setColor(0x00aaff)
+            .setTitle(idx === 0 ? `🔗 Liens d'invitation Telegram (${links.length} liens actifs)` : `🔗 Liens d'invitation Telegram (partie ${idx + 1})`)
+            .setDescription(`**🇫🇷 Canal FR (Canal de Kim 💖)**\n` + chunk.join('\n'))
+            .setFooter({ text: 'Donne à chaque VA UNIQUEMENT son propre lien pour le canal français' });
         });
+
+        return interaction.editReply({ embeds: embeds.slice(0, 10) });
 
       } else if (sub === 'stats') {
         const rows = getTodayStats();
@@ -209,6 +212,8 @@ module.exports = {
         await interaction.editReply({
           embeds: [new EmbedBuilder().setColor(0xf39c12).setTitle('🔄 Sync en cours...').setDescription('Création/vérification des liens pour toutes les VAs actives...')]
         });
+        const { ensureDatabaseSeeded } = require('../database/db');
+        if (typeof ensureDatabaseSeeded === 'function') ensureDatabaseSeeded();
         await createLinksForAllVAs();
         const links = getAllInviteLinks();
         return interaction.editReply({
