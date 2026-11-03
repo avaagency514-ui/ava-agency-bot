@@ -79,7 +79,22 @@ function seedDatabaseIfNeeded(db) {
       );
     `);
 
-    // 2. VAs
+    // 2. Nettoyage immédiat des éventuels doublons accumulés
+    try {
+      db.exec(`
+        DELETE FROM tg_subs
+        WHERE id NOT IN (
+          SELECT MIN(id)
+          FROM tg_subs
+          GROUP BY user_id, canal, ts
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tg_subs_uniq ON tg_subs (user_id, canal, ts);
+      `);
+    } catch (e) {
+      console.warn('Index tg_subs:', e.message);
+    }
+
+    // 3. VAs
     if (Array.isArray(data.vas)) {
       const q = db.prepare(`
         INSERT OR IGNORE INTO vas (discord_id, username, channel_id, statut, notes, telegram_id, created_at, updated_at)
@@ -90,7 +105,7 @@ function seedDatabaseIfNeeded(db) {
       }
     }
 
-    // 3. Liens Telegram (Les 38 liens FR + 18 liens US)
+    // 4. Liens Telegram (Les 38 liens FR + 18 liens US)
     if (Array.isArray(data.links)) {
       const q = db.prepare(`
         INSERT OR IGNORE INTO tg_invite_links (va_name, canal, invite_link, created_at)
@@ -101,7 +116,7 @@ function seedDatabaseIfNeeded(db) {
       }
     }
 
-    // 4. Rémunérations
+    // 5. Rémunérations (Avec mise à jour explicite des montants déjà réglés le 01/11)
     if (Array.isArray(data.tg_remuneration)) {
       const q = db.prepare(`
         INSERT INTO tg_remuneration (va_name, paid_subs_count, total_earned, bonus_paid_months, updated_at)
@@ -115,7 +130,7 @@ function seedDatabaseIfNeeded(db) {
       }
     }
 
-    // 5. Subs historiques
+    // 6. Subs historiques (Ne duplique jamais grâce à INSERT OR IGNORE + UNIQUE INDEX)
     if (Array.isArray(data.subs)) {
       const q = db.prepare(`
         INSERT OR IGNORE INTO tg_subs (ts, user_id, full_name, username, language, va_name, canal, eligible, report_sent, country, invite_link, has_avatar)
