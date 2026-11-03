@@ -141,6 +141,22 @@ function seedDatabaseIfNeeded(db) {
       }
     }
 
+    // 7. Requalification des abonnés légitimes précédemment exclus par manque d'avatar
+    try {
+      const reclassified = db.prepare(`
+        UPDATE tg_subs
+        SET eligible = 1, country = 'France (FR)'
+        WHERE country LIKE 'Zone suspecte%'
+          AND canal = 'FR'
+          AND full_name GLOB '*[a-zA-Z]*'
+      `).run();
+      if (reclassified.changes > 0) {
+        console.log(`✅ [Seed] ${reclassified.changes} abonnés légitimes requalifiés en 'France (FR)' et validés pour les VAs !`);
+      }
+    } catch (e) {
+      console.warn('Reclassification subs:', e.message);
+    }
+
     db.exec('COMMIT;');
 
     const finalLinks = db.prepare("SELECT count(*) as c FROM tg_invite_links").get()?.c || 0;

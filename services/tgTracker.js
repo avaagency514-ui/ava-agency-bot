@@ -22,27 +22,25 @@ const TelegramBot = require('node-telegram-bot-api');
 const { db } = require('../database/db');
 const { initRemunerationTable, buildVAReport, getOrCreateVA } = require('./tgRemuneration');
 
-// ─── Langues ACCEPTÉES : Français uniquement ──────────────────────────────
-const ALLOWED_LANGS = new Set(['fr']);
+// ─── Langues ACCEPTÉES : Français & Occidentaux (FR, EN, etc.) ─────────────
+const ALLOWED_LANGS = new Set(['fr', 'en']);
 
 const LANG_TO_COUNTRY = {
   fr: 'France (FR)',
+  en: 'France (FR)',
 };
 
-// ─── Régions EXPLICITEMENT exclues (US, Inde, Afrique, etc.) ───────────────
+// ─── Régions EXPLICITEMENT exclues (Asie, Inde, Afrique non-francophone, etc.) ───
 const EXCLUDED_REGIONS = {
-  // États-Unis / Monde anglophone
-  en: 'États-Unis (US)',
-
   // Inde & Asie du Sud
   hi: 'Inde (IN)', bn: 'Inde/Bangladesh', ur: 'Pakistan (PK)', ta: 'Inde (IN)', te: 'Inde (IN)',
   ml: 'Inde (IN)', kn: 'Inde (IN)', gu: 'Inde (IN)', mr: 'Inde (IN)', ne: 'Népal (NP)', si: 'Sri Lanka (LK)',
   pa: 'Inde/Pakistan',
 
-  // Afrique, Maghreb & Moyen-Orient (TOUTE ZONE AFRICAINE STRICTEMENT EXCLUE)
+  // Afrique, Maghreb & Moyen-Orient (Langues locales non-européennes)
   ar: 'Afrique du Nord / Arabe (Maghreb)', fa: 'Iran (IR)', ps: 'Afghanistan (AF)', tr: 'Turquie (TR)',
   sw: 'Afrique (Swahili)', yo: 'Nigéria (NG)', ig: 'Nigéria (NG)', ha: 'Nigéria/Niger', am: 'Éthiopie (ET)', so: 'Somalie (SO)',
-  wo: 'Sénégal (SN)', bm: 'Mali (ML)', ln: 'Congo (CD)', ff: 'Afrique (Peul)', rw: 'Rwanda (RW)', mg: 'Madagascar (MG)',
+  wo: 'Sénégal (SN)', ff: 'Afrique (Peul)', rw: 'Rwanda (RW)', mg: 'Madagascar (MG)',
   zu: 'Afrique du Sud (ZA)', xh: 'Afrique du Sud (ZA)', st: 'Afrique (Lesotho)', tn: 'Afrique (Botswana)', sn: 'Afrique (Zimbabwe)',
 
   // Asie du Sud-Est & Est
@@ -51,14 +49,12 @@ const EXCLUDED_REGIONS = {
   zh: 'Chine (CN)', ja: 'Japon (JP)', ko: 'Corée (KR)', mn: 'Mongolie (MN)',
   kk: 'Kazakhstan', ky: 'Kirghizistan', uz: 'Ouzbékistan', tg: 'Tadjikistan',
 
-  // Autres langues européennes non-françaises
-  es: 'Espagne (ES)', de: 'Allemagne (DE)', it: 'Italie (IT)', pt: 'Portugal/Brésil', nl: 'Pays-Bas (NL)',
-  ru: 'Russie (RU)', pl: 'Pologne (PL)', ro: 'Roumanie (RO)', uk: 'Ukraine (UA)', el: 'Grèce (GR)',
-  cs: 'Tchéquie (CZ)', hu: 'Hongrie (HU)', sv: 'Suède (SE)', da: 'Danemark (DK)', no: 'Norvège (NO)', fi: 'Finlande (FI)'
+  // Europe de l'Est / Russe (fermes et bots)
+  ru: 'Russie (RU)', uk: 'Ukraine (UA)'
 };
 
-// ─── Expressions régulières anti-fraude (Asie, Inde, Moyen-Orient) ───────────
-const ASIAN_ARAB_REGEX = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u0900-\u0DFF\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF\u0E00-\u0E7F]/;
+// ─── Expressions régulières anti-fraude (Asie, Inde, Moyen-Orient, Cyrillique) ─
+const ASIAN_ARAB_REGEX = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u0900-\u0DFF\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF\u0E00-\u0E7F\u0400-\u04FF]/;
 const HAS_LETTERS = /[a-zA-Z\u00C0-\u024F]/;
 
 // ─── Vérification d'un lien d'invitation Telegram authentique ───────────────
@@ -68,17 +64,18 @@ function isRealTelegramLink(link) {
   return link.startsWith('https://t.me/+') && link.length >= 20;
 }
 
-// ─── Analyse d'éligibilité : FRANCE UNIQUEMENT ──────────────────────────────
+// ─── Analyse d'éligibilité : RÈGLE JUSTE & MOTIVANTE POUR LES VAs ────────────
 function analyzeSubscriber({ user, canal = 'FR', hasAvatar = false }) {
   const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ') || '';
   const username = user.username || '';
   const text = (fullName + ' ' + username).trim();
   const langRaw = (user.language_code || '').toLowerCase().split('-')[0];
 
-  // 1. Détection de scripts Asie / Arabe / Inde
+  // 1. Détection de scripts Asie / Arabe / Inde / Russe
   if (ASIAN_ARAB_REGEX.test(text)) {
     let country = 'Inde (IN)';
     if (/[\u0600-\u06FF\u0750-\u077F]/.test(text)) country = 'Afrique du Nord / Arabe (Maghreb)';
+    else if (/[\u0400-\u04FF]/.test(text)) country = 'Russie / Cyrillique';
     else if (/[\u4E00-\u9FFF]/.test(text)) country = 'Chine (CN)';
     else if (/[\u0E00-\u0E7F]/.test(text)) country = 'Thaïlande (TH)';
     return {
@@ -98,7 +95,7 @@ function analyzeSubscriber({ user, canal = 'FR', hasAvatar = false }) {
     };
   }
 
-  // 3. Détection de région/langue explicitement exclue (US, Inde, Afrique, etc.)
+  // 3. Détection de région/langue explicitement exclue (Asie, Arabe, etc.)
   if (langRaw && EXCLUDED_REGIONS[langRaw]) {
     return {
       eligible: false,
@@ -110,51 +107,20 @@ function analyzeSubscriber({ user, canal = 'FR', hasAvatar = false }) {
   // 4. Détection de comptes sans lettres ou nom trop court (< 2 lettres)
   const lettersOnly = text.replace(/[^a-zA-Z\u00C0-\u024F]/g, '');
   if (lettersOnly.length < 2) {
-    const fallbackCountries = ['Inde (IN)', 'Indonésie (ID)', 'Pakistan (PK)', 'Nigéria (NG)', 'Égypte (EG)', 'Afrique de l\'Ouest (AF)'];
-    const assigned = fallbackCountries[Math.abs(user.id || 0) % fallbackCountries.length];
     return {
       eligible: false,
-      country: assigned,
-      reason: `Compte sans lettres ou trop court (${assigned})`,
+      country: 'Compte suspect sans nom',
+      reason: 'Compte fantôme sans lettres',
     };
   }
 
-  // 5. Langue explicitement autorisée : Français
-  if (langRaw === 'fr') {
-    return {
-      eligible: true,
-      country: 'France (FR)',
-      reason: `Langue française validée (FR)`,
-    };
-  }
-
-  // Si une autre langue étrangère quelconque est déclarée
-  if (langRaw && langRaw !== 'fr') {
-    return {
-      eligible: false,
-      country: `Hors France (${langRaw.toUpperCase()})`,
-      reason: `Non francophone (${langRaw})`,
-    };
-  }
-
-  // 6. Cas de langue inconnue / non transmise par Telegram :
-  // Si le compte N'A PAS d'avatar (photo de profil) ET n'a pas de langue FR déclarée :
-  // Signature des fermes de clics / comptes jetables / bots
-  if (!hasAvatar) {
-    const fallbackCountries = ['Zone suspecte (US/Ferme)', 'Zone suspecte (Afrique/Maghreb)', 'Zone suspecte (Asie/Inde)'];
-    const assigned = fallbackCountries[Math.abs(user.id || 0) % fallbackCountries.length];
-    return {
-      eligible: false,
-      country: assigned,
-      reason: `Compte sans photo et sans langue FR déclarée`,
-    };
-  }
-
-  // S'il a une photo de profil, des lettres latines et aucun script étranger :
+  // 5. TOUT PROFIL OCCIDENTAL (Français, Anglais ou langue non renseignée, avec ou sans photo)
+  // EST DÉSORMAIS VALIDÉ POUR LES VAs !
+  // (La majorité des vrais abonnés n'ont pas d'avatar public ou ont leur appli en EN)
   return {
     eligible: true,
     country: 'France (FR)',
-    reason: `Profil validé avec avatar (Canal FR)`,
+    reason: langRaw === 'fr' ? 'Langue française validée (FR)' : 'Profil occidental validé (Canal FR)',
   };
 }
 

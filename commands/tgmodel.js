@@ -15,8 +15,11 @@ const path = require('path');
 
 function isUserFounder(interaction) {
   const founderRoleId = process.env.ROLE_FUNDER_ID || '1438301065471721636';
-  const isFounderRole = founderRoleId && interaction.member?.roles?.cache?.has(founderRoleId);
-  const isAdmin = interaction.member?.permissions?.has(PermissionsBitField.Flags.Administrator);
+  const memberRoles = interaction.member?.roles;
+  const isFounderRole = memberRoles?.cache
+    ? memberRoles.cache.has(founderRoleId)
+    : (Array.isArray(memberRoles) ? memberRoles.includes(founderRoleId) : false);
+  const isAdmin = interaction.member?.permissions?.has?.(PermissionsBitField.Flags.Administrator);
   const isGuildOwner = interaction.guild?.ownerId && interaction.guild.ownerId === interaction.user?.id;
   const isFounderUserId = process.env.DISCORD_FOUNDER_ID && process.env.DISCORD_FOUNDER_ID === interaction.user?.id;
 
