@@ -613,8 +613,8 @@ async function recordChatterStrike(client, chatterId, strikeType, details = '') 
 
   const chatterMention = chatter.discord_user_id ? `<@${chatter.discord_user_id}>` : `**${chatter.name}**`;
 
-  // 1. Salon côté Chatter (#discussion 1553654224053866526)
-  const warningChannelId = process.env.CHANNEL_CHATTER_WARNINGS_CHATTER || '1553654224053866526';
+  // 1. Salon côté Chatter (#discussion 1567216877682298890)
+  const warningChannelId = process.env.CHANNEL_CHATTER_WARNINGS_CHATTER || '1567216877682298890';
   const warnChannel = await client.channels.fetch(warningChannelId).catch(() => null);
   if (warnChannel) {
     const warnEmbed = new EmbedBuilder()
@@ -723,7 +723,7 @@ async function recordChatterAbsence(client, chatterId, excuseNote = null) {
       await sChannel.send({ embeds: [firedEmbed] }).catch(() => {});
     }
 
-    const wChannelId = process.env.CHANNEL_CHATTER_WARNINGS_CHATTER || '1553654224053866526';
+    const wChannelId = process.env.CHANNEL_CHATTER_WARNINGS_CHATTER || '1567216877682298890';
     const wChannel = await client.channels.fetch(wChannelId).catch(() => null);
     if (wChannel) {
       await wChannel.send({
@@ -732,7 +732,7 @@ async function recordChatterAbsence(client, chatterId, excuseNote = null) {
     }
   } else {
     // Alerte pour les absences quotidiennes (< 5 jours)
-    const wChannelId = process.env.CHANNEL_CHATTER_WARNINGS_CHATTER || '1553654224053866526';
+    const wChannelId = process.env.CHANNEL_CHATTER_WARNINGS_CHATTER || '1567216877682298890';
     const wChannel = await client.channels.fetch(wChannelId).catch(() => null);
     if (wChannel) {
       const absentEmbed = new EmbedBuilder()

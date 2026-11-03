@@ -207,7 +207,7 @@ function getPenaltyChannelsForCategory(category) {
     const fromEnv = process.env.CHANNELS_PENALTY_CHATTER;
     if (fromEnv) return fromEnv.split(',').map(s => s.trim()).filter(Boolean);
     return [
-      '1553654224053866526',
+      '1567216877682298890',
       '1555280409682514000',
     ];
   }
@@ -568,7 +568,7 @@ async function setupPenaltyPanelChannel(client) {
       `🎯 **ROUTAGE AUTOMATIQUE DES NOTIFICATIONS :**\n` +
       `• 👔 **Managers** ➔ Diffusé dans <#1555451317575491604>\n` +
       `• 📱 **VAs** ➔ Diffusé dans les **6 salons de discussion VAs**\n` +
-      `• 💬 **Chatters** ➔ Diffusé dans les **2 salons de discussion Chatters** (<#1553654224053866526>, <#1555280409682514000>) + déduction financière sur commissions\n` +
+      `• 💬 **Chatters** ➔ Diffusé dans les **2 salons de discussion Chatters** (<#1567216877682298890>, <#1555280409682514000>) + déduction financière sur commissions\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
       `👇 **Cliquez ci-dessous sur le profil concerné pour ouvrir le formulaire :**`
     )
