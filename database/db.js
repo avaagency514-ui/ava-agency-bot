@@ -10,7 +10,36 @@ const fs = require('fs');
 const dataDir = path.join(__dirname, '../data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-const db = new DatabaseSync(path.join(dataDir, 'agency.db'));
+const dbPath = path.join(dataDir, 'agency.db');
+const seedPath = path.join(__dirname, '../seed_agency.db');
+
+// ─── Restauration automatique sur nouveau volume (ex: Railway) ──────────
+if (fs.existsSync(seedPath)) {
+  let shouldSeed = false;
+  if (!fs.existsSync(dbPath)) {
+    shouldSeed = true;
+  } else {
+    try {
+      const stats = fs.statSync(dbPath);
+      // Une base avec tout l'historique fait ~266 Ko, une base vierge fait ~25 Ko
+      if (stats.size < 200000 || process.env.FORCE_RESTORE_DB === 'true') {
+        shouldSeed = true;
+        console.log(`🔄 Base actuelle incomplète (${stats.size} octets). Restauration depuis seed_agency.db...`);
+      }
+    } catch {}
+  }
+
+  if (shouldSeed) {
+    try {
+      fs.copyFileSync(seedPath, dbPath);
+      console.log('✅ Base de données complète seed_agency.db injectée dans ' + dbPath);
+    } catch (err) {
+      console.error('⚠️ Erreur copie seed_agency.db:', err.message);
+    }
+  }
+}
+
+const db = new DatabaseSync(dbPath);
 
 // ─── Initialisation du schéma ─────────────────────────────────
 function initDatabase() {
