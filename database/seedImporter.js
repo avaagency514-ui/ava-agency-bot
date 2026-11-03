@@ -10,6 +10,14 @@ const fs = require('fs');
 
 function seedDatabaseIfNeeded(db) {
   try {
+    const seedJsonPath = path.join(__dirname, 'seed_data.json');
+    if (!fs.existsSync(seedJsonPath)) {
+      console.warn('⚠️ seed_data.json introuvable à', seedJsonPath);
+      return { error: 'seed_data.json not found' };
+    }
+
+    const data = JSON.parse(fs.readFileSync(seedJsonPath, 'utf8'));
+
     let linkCount = 0;
     try {
       const row = db.prepare("SELECT count(*) as c FROM tg_invite_links").get();
@@ -18,18 +26,7 @@ function seedDatabaseIfNeeded(db) {
       linkCount = 0;
     }
 
-    if (linkCount >= 10 && process.env.FORCE_RESTORE_DB !== 'true') {
-      return { alreadySeeded: true, linkCount };
-    }
-
-    const seedJsonPath = path.join(__dirname, 'seed_data.json');
-    if (!fs.existsSync(seedJsonPath)) {
-      console.warn('⚠️ seed_data.json introuvable à', seedJsonPath);
-      return { error: 'seed_data.json not found' };
-    }
-
-    const data = JSON.parse(fs.readFileSync(seedJsonPath, 'utf8'));
-    console.log(`🔄 [Seed] Restauration des données historiques (${linkCount} liens détectés)...`);
+    console.log(`🔄 [Seed] Synchronisation des données historiques (${linkCount} liens détectés)...`);
 
     db.exec('BEGIN TRANSACTION;');
 
@@ -107,8 +104,11 @@ function seedDatabaseIfNeeded(db) {
     // 4. Rémunérations
     if (Array.isArray(data.tg_remuneration)) {
       const q = db.prepare(`
-        INSERT OR IGNORE INTO tg_remuneration (va_name, paid_subs_count, total_earned, bonus_paid_months, updated_at)
+        INSERT INTO tg_remuneration (va_name, paid_subs_count, total_earned, bonus_paid_months, updated_at)
         VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(va_name) DO UPDATE SET
+          paid_subs_count = MAX(paid_subs_count, excluded.paid_subs_count),
+          total_earned    = MAX(total_earned, excluded.total_earned)
       `);
       for (const r of data.tg_remuneration) {
         q.run(r.va_name, r.paid_subs_count || 0, r.total_earned || 0, r.bonus_paid_months || '[]', r.updated_at || null);
