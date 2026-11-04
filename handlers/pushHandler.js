@@ -29,11 +29,30 @@ const {
 async function handlePushButton(interaction, client) {
   const id = interaction.customId;
 
-  // 1. Bouton "Nouveau Push" -> Ouvre la modale
-  if (id === 'push_btn_new') {
+  // 1. Bouton "Comment joindre un fichier ?"
+  if (id === 'push_btn_guide') {
+    const embed = new EmbedBuilder()
+      .setColor(0xec407a)
+      .setTitle('📎 COMMENT JOINDRE UN FICHIER (PHOTO, VIDÉO, VOCAL) ?')
+      .setDescription(
+        `👉 **Aucun lien externe nécessaire !**\n\n` +
+        `Il te suffit de glisser-déposer ou cliquer sur le bouton **\`+\`** de Discord pour joindre ton fichier directement dans ce salon :\n\n` +
+        `• 📸 **Photo** : \`.jpg\`, \`.png\`, \`.webp\`, \`.heic\`\n` +
+        `• 🎥 **Vidéo** : \`.mp4\`, \`.mov\`, \`.webm\`\n` +
+        `• 🎙️ **Audio / Vocal** : \`.mp3\`, \`.ogg\`, \`.wav\`, \`.m4a\`\n\n` +
+        `Accompagne ton fichier de ton texte d'accroche dans le même message.\n` +
+        `Le bot va immédiatement créer l'aperçu avec lecteur audio/vidéo intégré et les boutons de confirmation !`
+      )
+      .setFooter({ text: 'Mass DM Telegram Kim 💖' });
+
+    return interaction.reply({ embeds: [embed], ephemeral: true });
+  }
+
+  // 1b. Bouton "Push Texte Seul" -> Ouvre la modale sans champ URL
+  if (id === 'push_btn_text_only' || id === 'push_btn_new') {
     const modal = new ModalBuilder()
-      .setCustomId('push_modal_new')
-      .setTitle('🚀 Rédiger un Push Telegram');
+      .setCustomId('push_modal_text_only')
+      .setTitle('📝 Push Telegram (Texte Seul)');
 
     const textInput = new TextInputBuilder()
       .setCustomId('push_modal_text')
@@ -42,13 +61,6 @@ async function handlePushButton(interaction, client) {
       .setPlaceholder('Ex: Coucou chéri 💋 J\'ai pensé à toi... Tu fais quoi ce soir ?')
       .setRequired(true)
       .setMaxLength(4000);
-
-    const mediaUrlInput = new TextInputBuilder()
-      .setCustomId('push_modal_media_url')
-      .setLabel('Lien direct Image/Vidéo (Optionnel)')
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder('https://... ou colle le média directement dans le salon')
-      .setRequired(false);
 
     const excludeInput = new TextInputBuilder()
       .setCustomId('push_modal_exclude_hours')
@@ -59,7 +71,6 @@ async function handlePushButton(interaction, client) {
 
     modal.addComponents(
       new ActionRowBuilder().addComponents(textInput),
-      new ActionRowBuilder().addComponents(mediaUrlInput),
       new ActionRowBuilder().addComponents(excludeInput)
     );
 
@@ -188,36 +199,21 @@ async function handlePushButton(interaction, client) {
 }
 
 async function handlePushModal(interaction, client) {
-  if (interaction.customId === 'push_modal_new') {
+  if (interaction.customId === 'push_modal_text_only' || interaction.customId === 'push_modal_new') {
     const text = interaction.fields.getTextInputValue('push_modal_text');
-    const mediaUrl = interaction.fields.getTextInputValue('push_modal_media_url')?.trim() || null;
     const excludeHoursStr = interaction.fields.getTextInputValue('push_modal_exclude_hours')?.trim() || '2';
     const excludeHours = parseFloat(excludeHoursStr) || 2.0;
 
     const draftId = `draft_${Date.now()}_${interaction.user.id}`;
-    let mediaPath = null;
-    let mediaName = null;
-
-    if (mediaUrl && (mediaUrl.startsWith('http://') || mediaUrl.startsWith('https://'))) {
-      try {
-        const ext = path.extname(new URL(mediaUrl).pathname) || '.jpg';
-        mediaName = `media_${Date.now()}${ext}`;
-        const dest = path.join(__dirname, '..', 'temp', 'push_media', mediaName);
-        await downloadFile(mediaUrl, dest);
-        mediaPath = dest;
-      } catch (dlErr) {
-        console.warn('⚠️ Impossible de télécharger le média distant :', dlErr.message);
-      }
-    }
 
     const draft = {
       id: draftId,
       authorId: interaction.user.id,
       authorTag: interaction.user.tag,
       text: text,
-      mediaUrl: mediaUrl,
-      mediaPath: mediaPath,
-      mediaName: mediaName,
+      mediaUrl: null,
+      mediaPath: null,
+      mediaName: null,
       excludeHours: excludeHours,
       createdAt: Date.now()
     };
@@ -228,7 +224,7 @@ async function handlePushModal(interaction, client) {
     const row = buildDraftButtons(draftId);
 
     await interaction.reply({
-      content: '✅ Brouillon de Push préparé ! Vérifie et valide l\'envoi ci-dessous :',
+      content: '✅ Brouillon de Push (Texte) préparé ! Vérifie et valide l\'envoi ci-dessous :',
       ephemeral: true
     });
 

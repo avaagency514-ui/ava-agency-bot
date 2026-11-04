@@ -3,7 +3,7 @@
  * Écoute les messages Discord pour détecter les créations de Push directes
  * dans le salon dédié aux Push Telegram (#push).
  */
-const { Events } = require('discord.js');
+const { Events, AttachmentBuilder } = require('discord.js');
 const path = require('path');
 const fs = require('fs');
 const {
@@ -71,15 +71,21 @@ module.exports = {
       const embed = buildDraftEmbed(draft);
       const row = buildDraftButtons(draftId);
 
-      // Supprimer le message brut du chatter pour garder le salon 100% propre
-      await message.delete().catch(() => {});
-
-      // Envoyer le panneau de confirmation
-      await message.channel.send({
+      const payload = {
         content: `👋 Nouveau push préparé par <@${message.author.id}> :`,
         embeds: [embed],
         components: [row]
-      });
+      };
+
+      if (mediaPath && fs.existsSync(mediaPath)) {
+        payload.files = [new AttachmentBuilder(mediaPath, { name: mediaName })];
+      }
+
+      // Supprimer le message brut du chatter pour garder le salon 100% propre
+      await message.delete().catch(() => {});
+
+      // Envoyer le panneau de confirmation avec le média attaché
+      await message.channel.send(payload);
 
     } catch (err) {
       console.error('❌ Erreur lors du traitement du message dans #push :', err);

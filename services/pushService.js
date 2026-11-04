@@ -76,6 +76,21 @@ function makeProgressBar(percent, length = 14) {
   return '▰'.repeat(filled) + '▱'.repeat(empty);
 }
 
+function getMediaType(fileName) {
+  if (!fileName) return null;
+  const ext = path.extname(fileName).toLowerCase();
+  if (['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic'].includes(ext)) {
+    return { type: 'photo', label: '📸 Photo', ext };
+  }
+  if (['.mp4', '.mov', '.webm', '.avi', '.mkv', '.m4v'].includes(ext)) {
+    return { type: 'video', label: '🎥 Vidéo', ext };
+  }
+  if (['.mp3', '.ogg', '.opus', '.wav', '.m4a', '.aac', '.flac'].includes(ext)) {
+    return { type: 'audio', label: '🎙️ Message Vocal / Audio', ext };
+  }
+  return { type: 'document', label: '📁 Document / Fichier', ext };
+}
+
 // ─── Embeds & Panneaux ─────────────────────────────────────────
 
 function buildControlPanelEmbed() {
@@ -88,10 +103,13 @@ function buildControlPanelEmbed() {
     .setDescription(
       `Bienvenue sur l'interface **Push Telegram** pour **${config.model_name || 'Kim 💖'}** (${config.handle || '@kimchle'}).\n` +
       `Ce système permet d'envoyer un message privé direct (Mass DM) à **tous les fans** ayant engagé la conversation avec Kim.\n\n` +
-      `📌 **Comment envoyer un Push ?**\n` +
-      `• **Méthode 1 :** Clique sur **🚀 Nouveau Push** ci-dessous pour ouvrir l'éditeur.\n` +
-      `• **Méthode 2 :** Envoie directement ton texte avec ou sans photo/vidéo **dans ce salon** !\n` +
-      `• Le bot générera automatiquement un aperçu complet avec boutons de confirmation.`
+      `📥 **COMMENT ENVOYER UN PUSH AVEC FICHIER JOINT ?**\n` +
+      `Glisse ou joins directement ton fichier dans ce salon (**sans mettre de lien**) :\n` +
+      `• 📸 **Photo** (\`.jpg\`, \`.png\`, \`.webp\`)\n` +
+      `• 🎥 **Vidéo** (\`.mp4\`, \`.mov\`)\n` +
+      `• 🎙️ **Audio / Message Vocal** (\`.mp3\`, \`.ogg\`, \`.wav\`, \`.m4a\`)\n` +
+      `Accompagné de ton texte d'accroche dans le même message !\n\n` +
+      `⚡ Le bot génère immédiatement un aperçu avec **lecteur audio/vidéo intégré** et les boutons de confirmation.`
     )
     .addFields(
       {
@@ -117,16 +135,16 @@ function buildControlPanelEmbed() {
 function buildControlPanelButtons() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId('push_btn_new')
-      .setLabel('🚀 Nouveau Push')
+      .setCustomId('push_btn_guide')
+      .setLabel('📎 Joindre un Fichier (Guide)')
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
-      .setCustomId('push_btn_stats')
-      .setLabel('📊 Statistiques Fans')
+      .setCustomId('push_btn_text_only')
+      .setLabel('📝 Push Texte Seul (Sans média)')
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
-      .setCustomId('push_btn_settings')
-      .setLabel('⚙️ Options de Ciblage')
+      .setCustomId('push_btn_stats')
+      .setLabel('📊 Stats Fans')
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId('push_btn_refresh')
@@ -138,6 +156,7 @@ function buildControlPanelButtons() {
 function buildDraftEmbed(draft) {
   const config = readConfig();
   const cachedCount = getCachedFansCount();
+  const mediaInfo = getMediaType(draft.mediaName);
 
   const embed = new EmbedBuilder()
     .setColor(0xff9800)
@@ -164,14 +183,14 @@ function buildDraftEmbed(draft) {
       },
       {
         name: '💬 Message',
-        value: draft.text && draft.text.trim() ? draft.text : '*[Aucun texte — Média seul]*',
+        value: draft.text && draft.text.trim() ? draft.text : '*[Aucun texte — Fichier média seul]*',
       }
     );
 
   if (draft.mediaName) {
     embed.addFields({
-      name: '📎 Pièce jointe',
-      value: `📁 **${draft.mediaName}**`,
+      name: '📎 Fichier joint détecté',
+      value: `${mediaInfo?.label || '📁 Fichier'} : **${draft.mediaName}**`,
       inline: false,
     });
   }
@@ -446,6 +465,7 @@ module.exports = {
   readConfig,
   readStatus,
   getCachedFansCount,
+  getMediaType,
   buildControlPanelEmbed,
   buildControlPanelButtons,
   buildDraftEmbed,

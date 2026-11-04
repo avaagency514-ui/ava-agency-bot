@@ -200,22 +200,52 @@ async def get_stats():
             except Exception:
                 pass
 
+def prepare_audio_voice(file_path):
+    """Si c'est un fichier audio non-ogg (ex: mp3, m4a, wav), convertit en ogg/opus pour un vrai vocal Telegram."""
+    if not file_path or not os.path.exists(file_path):
+        return file_path
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext in ['.mp3', '.wav', '.m4a', '.aac', '.flac']:
+        ogg_path = os.path.splitext(file_path)[0] + "_voice.ogg"
+        try:
+            import subprocess
+            cmd = ["ffmpeg", "-y", "-i", file_path, "-c:a", "libopus", "-b:a", "32k", "-vn", ogg_path]
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
+            if res.returncode == 0 and os.path.exists(ogg_path):
+                print(f"[PUSH] Fichier audio converti en vocal Telegram OGG Opus : {os.path.basename(ogg_path)}", flush=True)
+                return ogg_path
+        except Exception as e:
+            print(f"[PUSH] Conversion ffmpeg audio ignorée ({e})", flush=True)
+    return file_path
+
 async def send_single_push(client, user_id, text, media_path=None):
-    """Envoie le message ou le média au fan donné."""
+    """Envoie le message ou le média (photo, vidéo, vocal) au fan donné."""
     if media_path and os.path.exists(media_path):
         ext = os.path.splitext(media_path)[1].lower()
-        caption = text if len(text) <= 1024 else None
+        caption = text if text and len(text) <= 1024 else None
 
-        if ext in ['.jpg', '.jpeg', '.png', '.webp']:
+        # 1. Photos
+        if ext in ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.heic']:
             await client.send_photo(chat_id=user_id, photo=media_path, caption=caption)
-        elif ext in ['.mp4', '.mov', '.avi']:
-            await client.send_video(chat_id=user_id, video=media_path, caption=caption)
-        elif ext in ['.ogg', '.mp3', '.m4a']:
+
+        # 2. Vidéos
+        elif ext in ['.mp4', '.mov', '.webm', '.avi', '.mkv', '.m4v']:
+            await client.send_video(chat_id=user_id, video=media_path, caption=caption, supports_streaming=True)
+
+        # 3. Message Vocal / Audio
+        elif ext in ['.ogg', '.opus']:
             await client.send_voice(chat_id=user_id, voice=media_path, caption=caption)
+        elif ext in ['.mp3', '.wav', '.m4a', '.aac', '.flac']:
+            try:
+                await client.send_voice(chat_id=user_id, voice=media_path, caption=caption)
+            except Exception:
+                await client.send_audio(chat_id=user_id, audio=media_path, caption=caption)
+
+        # 4. Autres documents
         else:
             await client.send_document(chat_id=user_id, document=media_path, caption=caption)
 
-        # Si le texte était trop long pour la légende (limite 1024 chars), envoyer en second message
+        # Si le texte était trop long pour la légende (> 1024 chars), envoyer en second message
         if text and len(text) > 1024:
             await client.send_message(chat_id=user_id, text=text)
     else:
@@ -228,6 +258,10 @@ async def run_push(job_id, text, media_path=None, exclude_hours=2, delay_min=2.5
         UserDeactivated, UserIsBlocked, RPCError
     )
     clear_cancel_flag()
+
+    # Pré-optimisation de l'audio si nécessaire
+    if media_path and os.path.exists(media_path):
+        media_path = prepare_audio_voice(media_path)
     status_data = {
         "job_id": job_id,
         "status": "running",
