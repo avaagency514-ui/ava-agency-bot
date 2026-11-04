@@ -809,7 +809,7 @@ function buildRemunerationSection(linkMap = {}, todayVaMap = {}) {
       continue;
     }
 
-    const estimatedAmount = (r.pendingSubs / 3).toFixed(2);
+    const estimatedAmount = Math.max(0, r.pendingSubs / 3).toFixed(2);
     const link = (linkMap[r.vaName] && (linkMap[r.vaName]['FR'] || linkMap[r.vaName]['US'])) || null;
 
     // Barre de progression vers 500 subs
@@ -837,6 +837,12 @@ function buildRemunerationSection(linkMap = {}, todayVaMap = {}) {
       card.push(`🎉 **OBJECTIF ATTEINT (≥ 30 subs valides)**`);
       card.push(`💵 **À PAYER CE RÈGLEMENT : \$${payable}.00**`);
       card.push(`🔄 **Statut compteur** : Remise à 0 dès validation du virement`);
+    } else if (r.pendingSubs === 0) {
+      // Cas Rachid : paid_subs_count >= totalEligible (subs invalidés après paie)
+      card.push(`⏳ **OBJECTIF EN COURS (0/30 subs valides — encore 30 manquant(s))**`);
+      card.push(`💰 Montant sécurisé : **\$0.00**`);
+      card.push(`ℹ️ *Compteur remis à jour (subs invalidés après la dernière paie pris en compte)*`);
+      card.push(`🔄 **Statut compteur** : 🔒 **NE SE REMET PAS À 0** (conservé et cumulé pour les 2 prochaines semaines)`);
     } else {
       const manque = 30 - r.pendingSubs;
       card.push(`⏳ **OBJECTIF EN COURS (${r.pendingSubs}/30 subs valides — encore ${manque} manquant(s))**`);

@@ -75,7 +75,9 @@ function buildVAReport(vaName) {
   const totalEarned   = remun.total_earned;
 
   // Subs pas encore comptabilisés dans un paiement
-  const pendingSubs = totalEligible - paidSubsCount;
+  // ⚠️ Clamp à 0 : si des subs ont été invalidés après une paie (partis du canal,
+  // comptes supprimés...), totalEligible peut être < paidSubsCount → jamais afficher négatif
+  const pendingSubs = Math.max(0, totalEligible - paidSubsCount);
 
   // Palier minimum de 30 subs valides pour déclencher un paiement
   const MINIMUM_SUBS = 30;
