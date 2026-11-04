@@ -4,6 +4,7 @@ const { handleContentFactory } = require('../handlers/contentFactory');
 const { handleChatterButton, handleChatterSelect, handleChatterModal } = require('../handlers/chatterHandler');
 const { handlePenaltyButton, handlePenaltySelect, handlePenaltyModal } = require('../handlers/penaltyHandler');
 const { handleComptaButton, handleComptaSelect, handleComptaModal } = require('../handlers/comptaHandler');
+const { handlePushButton, handlePushModal } = require('../handlers/pushHandler');
 
 module.exports = {
   name: Events.InteractionCreate,
@@ -84,6 +85,11 @@ module.exports = {
     }
     if (interaction.isButton()) {
       const id = interaction.customId;
+
+      // Push Telegram Mass DM
+      if (id.startsWith('push_')) {
+        return handlePushButton(interaction, client);
+      }
 
       // Ticket onboarding & role assignment
       if (id.startsWith('ticket_')) {
@@ -247,6 +253,11 @@ module.exports = {
     // ─── Modals ─────────────────────────────────────────────────
     if (interaction.isModalSubmit()) {
       const id = interaction.customId;
+
+      // Push Telegram Modals
+      if (id.startsWith('push_')) {
+        return handlePushModal(interaction, client);
+      }
 
       // Chatter Modals
       if (id.startsWith('chatter_')) {

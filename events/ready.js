@@ -2,6 +2,7 @@ const { Events, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = r
 const { initChatterTables, setupChatterRevenuChannel, setupChatterAdminChannel, setupChatterPointageChannel } = require('../services/chatterService');
 const { initPenaltyTables, setupPenaltyPanelChannel } = require('../services/penaltyService');
 const { initComptaTables, setupComptaChannel, initMonthlyRecurringExpenses } = require('../services/comptaService');
+const { setupPushPanelChannel } = require('../services/pushService');
 
 module.exports = {
   name: Events.ClientReady,
@@ -28,6 +29,7 @@ module.exports = {
       initComptaTables();
       initMonthlyRecurringExpenses();
       await setupComptaChannel(client);
+      await setupPushPanelChannel(client);
     } catch (err) {
       console.error('❌ Erreur initialisation Chatters :', err);
     }

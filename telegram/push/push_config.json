@@ -1,0 +1,11 @@
+{
+  "api_id": 36121361,
+  "api_hash": "29263ae8f125a5dfb91491b63264d0e2",
+  "fallback_api_id": 33266483,
+  "fallback_api_hash": "0d2d60888604dc3b15bed3e65efc6ce8",
+  "model_name": "Kim 💖",
+  "handle": "@kimchle",
+  "delay_min": 2.5,
+  "delay_max": 4.5,
+  "exclude_active_hours": 2
+}
