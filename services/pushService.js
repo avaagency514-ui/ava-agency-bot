@@ -69,6 +69,30 @@ function getCachedFansCount() {
   }
 }
 
+function readPushHistory() {
+  const historyPaths = [
+    path.join(__dirname, '..', 'data', 'push_history.json'),
+    path.join(SCRIPT_DIR, 'push_history.json')
+  ];
+  for (const hp of historyPaths) {
+    if (fs.existsSync(hp)) {
+      try {
+        return JSON.parse(fs.readFileSync(hp, 'utf-8'));
+      } catch (e) {}
+    }
+  }
+  return {};
+}
+
+function getSentTodayCount() {
+  const todayStr = new Date().toLocaleDateString('fr-CA', { timeZone: 'Europe/Paris' });
+  const hist = readPushHistory();
+  const list = hist[todayStr];
+  if (Array.isArray(list)) return list.length;
+  if (list && typeof list === 'object') return Object.keys(list).length;
+  return 0;
+}
+
 function makeProgressBar(percent, length = 14) {
   const p = Math.max(0, Math.min(100, percent || 0));
   const filled = Math.round((p / 100) * length);
@@ -96,6 +120,8 @@ function getMediaType(fileName) {
 function buildControlPanelEmbed() {
   const config = readConfig();
   const cachedCount = getCachedFansCount();
+  const sentToday = getSentTodayCount();
+  const remaining = Math.max(0, cachedCount - sentToday);
 
   return new EmbedBuilder()
     .setColor(0xec407a)
@@ -113,18 +139,18 @@ function buildControlPanelEmbed() {
     )
     .addFields(
       {
-        name: '🎯 Destinataires',
-        value: `**${cachedCount}+** fans en base privée\n*(Tous les fans ayant écrit à Kim)*`,
+        name: '🎯 Destinataires Éligibles',
+        value: `**${remaining} fans** *(sur ${cachedCount}+)*\n*Disponibles pour un push aujourd'hui*`,
+        inline: true,
+      },
+      {
+        name: '🚫 Règle Anti-Spam',
+        value: `**1 seul push max / fan / jour**\n*Déjà envoyés aujourd'hui : **${sentToday} fans***`,
         inline: true,
       },
       {
         name: '🔇 Sécurité Échanges',
-        value: `Exclut les fans actifs **< ${config.exclude_active_hours || 2}h**\n*(Ne coupe pas les ventes en cours)*`,
-        inline: true,
-      },
-      {
-        name: '🛡️ Cadence Anti-Ban',
-        value: `Tempo humaine : **${config.delay_min || 2.5}s – ${config.delay_max || 4.5}s**\n*Gestion FloodWait automatique*`,
+        value: `Exclut les fans actifs **< ${config.exclude_active_hours || 2}h**\n*(Ne coupe pas les ventes)*`,
         inline: true,
       }
     )
@@ -156,6 +182,8 @@ function buildControlPanelButtons() {
 function buildDraftEmbed(draft) {
   const config = readConfig();
   const cachedCount = getCachedFansCount();
+  const sentToday = getSentTodayCount();
+  const remaining = Math.max(0, cachedCount - sentToday);
   const mediaInfo = getMediaType(draft.mediaName);
 
   const embed = new EmbedBuilder()
@@ -172,8 +200,13 @@ function buildDraftEmbed(draft) {
         inline: true,
       },
       {
-        name: '🎯 Destinataires estimés',
-        value: `**~${cachedCount} fans** *(DMs privés)*`,
+        name: '🎯 Cibles Disponibles',
+        value: `**~${remaining} fans** *(sur ${cachedCount})*`,
+        inline: true,
+      },
+      {
+        name: '🚫 Déjà Reçus Aujourd\'hui',
+        value: `**${sentToday} fans exclus**\n*(Règle : 1 seul push/jour)*`,
         inline: true,
       },
       {
@@ -236,6 +269,7 @@ function buildProgressEmbed(job, statusData) {
       `**Statut :** ${statusLabel}\n\n` +
       `• **Destinataire en cours :** \`${current}\`\n` +
       `• **Envoyés :** \`${sent} / ${total}\`\n` +
+      `• **Exclus (déjà contactés aujourd'hui) :** \`${statusData.excluded_already_sent_today || getSentTodayCount()}\`\n` +
       `• **Ignorés (DMs fermés/inactifs) :** \`${skipped}\`\n` +
       `• **Erreurs :** \`${failed}\``
     )
@@ -272,6 +306,7 @@ function buildCompletedEmbed(job, statusData) {
       `Le Mass DM lancé par <@${job.authorId}> est désormais terminé.\n\n` +
       `📊 **Bilan de diffusion :**\n` +
       `• **Messages envoyés avec succès :** \`${sent}\`\n` +
+      `• **Exclus (déjà contactés aujourd'hui) :** \`${statusData.excluded_already_sent_today || getSentTodayCount()}\`\n` +
       `• **Destinataires ignorés (injoignables) :** \`${skipped}\`\n` +
       `• **Erreurs :** \`${failed}\`\n` +
       `• **Total des cibles traitées :** \`${sent + skipped + failed} / ${total}\``

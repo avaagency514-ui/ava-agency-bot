@@ -20,10 +20,65 @@ if hasattr(sys.stdout, 'reconfigure'):
         pass
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", "data"))
 CONFIG_FILE = os.path.join(SCRIPT_DIR, "push_config.json")
 SESSION_FILE = os.path.join(SCRIPT_DIR, "session_push")
 STATUS_FILE = os.path.join(SCRIPT_DIR, "push_status.json")
 CANCEL_FLAG_FILE = os.path.join(SCRIPT_DIR, "push_cancel.flag")
+
+HISTORY_FILE_DATA = os.path.join(DATA_DIR, "push_history.json")
+HISTORY_FILE_LOCAL = os.path.join(SCRIPT_DIR, "push_history.json")
+
+try:
+    from zoneinfo import ZoneInfo
+    PARIS_TZ = ZoneInfo("Europe/Paris")
+except Exception:
+    PARIS_TZ = timezone(timedelta(hours=1))
+
+def get_today_str():
+    return datetime.now(PARIS_TZ).strftime("%Y-%m-%d")
+
+def load_history():
+    for fpath in [HISTORY_FILE_DATA, HISTORY_FILE_LOCAL]:
+        if os.path.exists(fpath):
+            try:
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+    return {}
+
+def save_history(history):
+    # Conserver les 30 derniers jours d'historique
+    cutoff_date = (datetime.now(PARIS_TZ) - timedelta(days=30)).strftime("%Y-%m-%d")
+    trimmed = {d: uids for d, uids in history.items() if d >= cutoff_date}
+    for fpath in [HISTORY_FILE_DATA, HISTORY_FILE_LOCAL]:
+        try:
+            os.makedirs(os.path.dirname(fpath), exist_ok=True)
+            with open(fpath, 'w', encoding='utf-8') as f:
+                json.dump(trimmed, f, indent=2)
+        except Exception as e:
+            print(f"[PUSH] Erreur sauvegarde historique {fpath}: {e}", flush=True)
+
+def get_sent_today_fans():
+    history = load_history()
+    today_str = get_today_str()
+    day_data = history.get(today_str, [])
+    if isinstance(day_data, dict):
+        return set(int(uid) for uid in day_data.keys())
+    elif isinstance(day_data, list):
+        return set(int(uid) for uid in day_data)
+    return set()
+
+def record_fan_push_sent(user_id):
+    history = load_history()
+    today_str = get_today_str()
+    if today_str not in history or not isinstance(history[today_str], list):
+        history[today_str] = []
+    uid_int = int(user_id)
+    if uid_int not in history[today_str]:
+        history[today_str].append(uid_int)
+    save_history(history)
 
 
 def load_config():
@@ -113,14 +168,18 @@ async def create_client():
 async def fetch_target_fans(client, exclude_hours=2):
     """
     Récupère tous les fans ayant une conversation privée avec Kim.
+    Exclut STRICTEMENT les fans ayant déjà reçu un push aujourd'hui (1 push max par fan par jour).
     Exclut optionnellement les fans actifs récemment.
     """
     from pyrogram.enums import ChatType
     targets = []
-    excluded_count = 0
+    excluded_active_count = 0
+    excluded_already_sent_today = 0
+    sent_today = get_sent_today_fans()
     now = datetime.now(timezone.utc)
     seen_ids = set()
 
+    print(f"[PUSH] Fans ayant déjà reçu un push aujourd'hui (exclus) : {len(sent_today)}", flush=True)
     print("[PUSH] Récupération des conversations privées en cours...", flush=True)
     try:
         async for dialog in client.get_dialogs():
@@ -131,6 +190,11 @@ async def fetch_target_fans(client, exclude_hours=2):
                     continue
                 seen_ids.add(user_id)
 
+                # RÈGLE D'OR: Ne jamais envoyer 2 push à la même personne le même jour
+                if user_id in sent_today:
+                    excluded_already_sent_today += 1
+                    continue
+
                 # Vérification de l'exclusion des fans actifs récemment
                 if exclude_hours > 0 and dialog.top_message and dialog.top_message.date:
                     msg_date = dialog.top_message.date
@@ -138,7 +202,7 @@ async def fetch_target_fans(client, exclude_hours=2):
                         msg_date = msg_date.replace(tzinfo=timezone.utc)
                     diff_hours = (now - msg_date).total_seconds() / 3600.0
                     if diff_hours < exclude_hours:
-                        excluded_count += 1
+                        excluded_active_count += 1
                         continue
 
                 first_name = chat.first_name or "Fan"
@@ -156,14 +220,17 @@ async def fetch_target_fans(client, exclude_hours=2):
     for peer_id in sqlite_peers:
         if peer_id not in seen_ids:
             seen_ids.add(peer_id)
+            if peer_id in sent_today:
+                excluded_already_sent_today += 1
+                continue
             targets.append({
                 "id": peer_id,
                 "name": f"Fan_{peer_id}",
                 "username": ""
             })
 
-    print(f"[PUSH] Cibles identifiées : {len(targets)} fans (Exclus car actifs < {exclude_hours}h : {excluded_count})", flush=True)
-    return targets, excluded_count
+    print(f"[PUSH] Cibles retenues : {len(targets)} fans | Déjà contactés aujourd'hui : {excluded_already_sent_today} | Actifs < {exclude_hours}h : {excluded_active_count}", flush=True)
+    return targets, excluded_active_count, excluded_already_sent_today
 
 async def get_stats():
     """Action stats: retourne les métriques pour Discord."""
@@ -171,25 +238,29 @@ async def get_stats():
     try:
         client = await create_client()
         me = await client.get_me()
-        targets, excluded = await fetch_target_fans(client, exclude_hours=CONFIG.get("exclude_active_hours", 2))
+        targets, excluded_active, excluded_today = await fetch_target_fans(client, exclude_hours=CONFIG.get("exclude_active_hours", 2))
         res = {
             "model_name": f"{me.first_name} (@{me.username or 'kimchle'})",
             "model_id": me.id,
-            "total_reachable_fans": len(targets) + excluded,
+            "total_reachable_fans": len(targets) + excluded_active + excluded_today,
             "ready_fans": len(targets),
-            "excluded_active_fans": excluded,
+            "excluded_active_fans": excluded_active,
+            "already_sent_today": excluded_today,
             "sqlite_cached_peers": len(get_peers_from_sqlite())
         }
         print(json.dumps(res, ensure_ascii=False))
         return res
     except Exception as e:
+        sent_today = get_sent_today_fans()
+        cached = get_peers_from_sqlite()
         err_res = {
             "error": str(e),
             "model_name": "Kim 💖 (@kimchle)",
-            "total_reachable_fans": len(get_peers_from_sqlite()),
-            "ready_fans": len(get_peers_from_sqlite()),
+            "total_reachable_fans": len(cached),
+            "ready_fans": max(0, len(cached) - len(sent_today)),
             "excluded_active_fans": 0,
-            "sqlite_cached_peers": len(get_peers_from_sqlite())
+            "already_sent_today": len(sent_today),
+            "sqlite_cached_peers": len(cached)
         }
         print(json.dumps(err_res, ensure_ascii=False))
         return err_res
@@ -285,16 +356,19 @@ async def run_push(job_id, text, media_path=None, exclude_hours=2, delay_min=2.5
         me = await client.get_me()
         print(f"[PUSH] Connecté avec succès : {me.first_name} (@{me.username})", flush=True)
 
-        targets, excluded = await fetch_target_fans(client, exclude_hours=exclude_hours)
+        targets, excluded_active, excluded_today = await fetch_target_fans(client, exclude_hours=exclude_hours)
         total_targets = len(targets)
         status_data["total"] = total_targets
-        status_data["excluded_count"] = excluded
+        status_data["excluded_active"] = excluded_active
+        status_data["excluded_already_sent_today"] = excluded_today
         write_status(status_data)
 
         if total_targets == 0:
-            print("[PUSH] Aucun fan éligible trouvé pour ce push.", flush=True)
+            msg = f"[PUSH] Aucun fan à contacter : {excluded_today} fans ont déjà reçu un push aujourd'hui (Règle : 1 push max/jour)."
+            print(msg, flush=True)
             status_data["status"] = "completed"
             status_data["percent"] = 100.0
+            status_data["message"] = msg
             write_status(status_data)
             return
 
@@ -324,6 +398,7 @@ async def run_push(job_id, text, media_path=None, exclude_hours=2, delay_min=2.5
                     await send_single_push(client, user_id, text, media_path)
                     sent_count += 1
                     status_data["sent"] = sent_count
+                    record_fan_push_sent(user_id)
                     success = True
                     print(f"[PUSH] [{i+1}/{total_targets}] OK Envoyé à {name} ({user_id})", flush=True)
                 except FloodWait as fw:
