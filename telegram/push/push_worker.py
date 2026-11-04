@@ -154,12 +154,16 @@ async def create_client():
     client = Client(SESSION_FILE, api_id=API_ID, api_hash=API_HASH)
     try:
         await client.connect()
+        # CRUCIAL : Pyrogram connect() ne peuple PAS client.me par défaut !
+        # send_message() vérifie self.me.is_premium, donc client.me DOIT être assigné.
+        client.me = await client.get_me()
         return client
     except Exception as e:
         print(f"[PUSH] Connexion avec API_ID={API_ID} échouée ({e}), tentative avec fallback...", flush=True)
         try:
             client_fallback = Client(SESSION_FILE, api_id=FALLBACK_API_ID, api_hash=FALLBACK_API_HASH)
             await client_fallback.connect()
+            client_fallback.me = await client_fallback.get_me()
             return client_fallback
         except Exception as e2:
             print(f"[PUSH] Échec critique connexion Pyrogram: {e2}", flush=True)
@@ -183,10 +187,13 @@ async def fetch_target_fans(client, exclude_hours=2):
     print("[PUSH] Récupération des conversations privées en cours...", flush=True)
     try:
         async for dialog in client.get_dialogs():
+            if not dialog or not getattr(dialog, 'chat', None):
+                continue
             chat = dialog.chat
-            if chat.type in [ChatType.PRIVATE, "private"]:
-                user_id = chat.id
-                if user_id in seen_ids:
+            chat_type = getattr(chat, 'type', None)
+            if chat_type in [ChatType.PRIVATE, "private"] or str(chat_type).endswith(".PRIVATE"):
+                user_id = getattr(chat, 'id', None)
+                if not user_id or user_id in seen_ids:
                     continue
                 seen_ids.add(user_id)
 
@@ -353,7 +360,9 @@ async def run_push(job_id, text, media_path=None, exclude_hours=2, delay_min=2.5
     client = None
     try:
         client = await create_client()
-        me = await client.get_me()
+        if not getattr(client, "me", None):
+            client.me = await client.get_me()
+        me = client.me
         print(f"[PUSH] Connecté avec succès : {me.first_name} (@{me.username})", flush=True)
 
         targets, excluded_active, excluded_today = await fetch_target_fans(client, exclude_hours=exclude_hours)
