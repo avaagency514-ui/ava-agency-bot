@@ -9,6 +9,7 @@ const CONTENT_LABELS = {
   post:         { emoji: '🖼️', label: 'Post', color: 0x00aaff },
   pp:           { emoji: '👤', label: 'Photo de Profil', color: 0x9b59b6 },
   cta:          { emoji: '🔗', label: 'CTA', color: 0xf39c12 },
+  sms:          { emoji: '📱', label: 'SMS', color: 0xe74c3c },
   textbio:      { emoji: '📝', label: 'Bio', color: 0x3498db, col: 'A' },
   textstorycta: { emoji: '📣', label: 'Story CTA', color: 0x3498db, col: 'B' },
   textprofil:   { emoji: '👤', label: 'Profil Texte', color: 0x3498db, col: 'C' },
@@ -21,7 +22,7 @@ const CONTENT_LABELS = {
 async function handleContentFactory(interaction) {
   const type = interaction.customId.replace('content_', '');
 
-  if (['banger', 'sms', 'captionreel', 'legendsthreads', 'followus'].includes(type)) {
+  if (['banger', 'captionreel', 'legendsthreads', 'followus'].includes(type)) {
     return interaction.reply({ content: '❌ Cette option n\'est plus disponible (retirée).', ephemeral: true });
   }
 
@@ -31,6 +32,10 @@ async function handleContentFactory(interaction) {
   }
 
   await interaction.deferReply({ ephemeral: true });
+
+  if (type === 'sms') {
+    return handleSMSRequest(interaction);
+  }
 
   if (type.startsWith('text')) {
     return handleTextRequest(interaction, type, meta);
@@ -118,6 +123,39 @@ function buildProfileSelectRow(type, profiles, page = 0) {
   return new ActionRowBuilder().addComponents(selectMenu);
 }
 
+function getMarketFromInteraction(interaction) {
+  const chId = interaction.channelId;
+  const isUs = (process.env.CHANNEL_CONTENT_US && chId === process.env.CHANNEL_CONTENT_US) ||
+               (process.env.CHANNEL_CONTENT_US_MOBILE && chId === process.env.CHANNEL_CONTENT_US_MOBILE);
+  return isUs ? 'US' : 'FR';
+}
+
+/**
+ * Gère la demande de SMS via SMSPool
+ */
+async function handleSMSRequest(interaction) {
+  const { getBalance } = require('../services/smspool');
+  let balanceText = '';
+  try {
+    const balanceResult = await getBalance();
+    if (balanceResult && balanceResult.success && balanceResult.balance !== undefined) {
+      balanceText = `\n💰 **Solde SMSPool :** \`$${balanceResult.balance.toFixed(2)}\``;
+    }
+  } catch (e) {}
+
+  const embed = new EmbedBuilder()
+    .setColor(0xe74c3c)
+    .setTitle('📱 SMSPool — Numéro Instagram US')
+    .setDescription(`Obtiens un numéro temporaire USA (+1) pour créer ou vérifier un compte Instagram.${balanceText}\n\nClique sur le bouton ci-dessous pour réserver un numéro.`)
+    .setFooter({ text: 'AVA Agency • SMSPool Integration' });
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('smspool_get_number').setLabel('📱 Obtenir un numéro IG (USA)').setStyle(ButtonStyle.Danger)
+  );
+
+  await interaction.editReply({ embeds: [embed], components: [row] });
+}
+
 /**
  * Gère la demande de textes générés par IA
  */
@@ -125,7 +163,7 @@ async function handleTextRequest(interaction, type, meta) {
   const { getRandomTextFromSheet } = require('../services/sheets');
   const { generateUniqueText } = require('../services/gemini');
 
-  const market = 'FR';
+  const market = getMarketFromInteraction(interaction);
   
   await interaction.editReply({ 
     embeds: [new EmbedBuilder().setColor(0xffff00).setTitle('⏳ Traitement en cours...').setDescription(`Génération du texte **${meta.label}** unique avec l'IA...\nCeci prend quelques secondes.`)]
@@ -186,7 +224,7 @@ async function handleContentSelect(interaction) {
   try {
     for (let i = 0; i < qty; i++) {
       // 1. Fetch depuis le Drive (par profile_id). Cela tire un fichier aléatoire à chaque itération
-      const market = 'FR';
+      const market = getMarketFromInteraction(interaction);
       const driveData = await getFileForProfile(type, profileId, market);
       stockRestant = driveData.stockRestant;
       const localPath = driveData.localPath;

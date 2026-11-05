@@ -38,9 +38,9 @@ module.exports = {
     await setupContentFactory(client, process.env.CHANNEL_CONTENT_FR, 'FR');
     await setupContentFactory(client, process.env.CHANNEL_CONTENT_FR_MOBILE, 'FR (Mobile)');
 
-    // Purger les salons US (supprimer tout ancien Content Factory US)
-    await purgeContentFactory(client, process.env.CHANNEL_CONTENT_US, 'US');
-    await purgeContentFactory(client, process.env.CHANNEL_CONTENT_US_MOBILE, 'US (Mobile)');
+    // Publier le message Content Factory pour les salons US (avec SMS)
+    await setupContentFactory(client, process.env.CHANNEL_CONTENT_US, 'US');
+    await setupContentFactory(client, process.env.CHANNEL_CONTENT_US_MOBILE, 'US (Mobile)');
   },
 };
 
@@ -88,20 +88,22 @@ async function setupContentFactory(client, channelId, marketLabel) {
     }
   }
 
+  const isUS = marketLabel.startsWith('US');
+
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle('🎬 Content Factory — V2')
-    .setDescription('Clique sur un bouton pour générer du contenu ou du texte (IA).')
+    .setTitle(`🎬 Content Factory — V2${isUS ? ' (US)' : ''}`)
+    .setDescription(isUS ? 'Clique sur un bouton pour générer du contenu, obtenir un SMS ou du texte (IA).' : 'Clique sur un bouton pour générer du contenu ou du texte (IA).')
     .addFields({
       name: 'Médias',
       value: '**Reels** · **Post** · **PP** · **CTA**',
       inline: true
     }, {
-      name: 'Textes & Follow',
-      value: '**Bio** · **Story CTA** · **Profil** · **Follow FR**',
+      name: isUS ? 'SMS & Textes' : 'Textes & Follow',
+      value: isUS ? '**SMS** · **Bio** · **Story CTA** · **Profil**' : '**Bio** · **Story CTA** · **Profil** · **Follow FR**',
       inline: true
     })
-    .setFooter({ text: 'AVA Agency Bot • Contenu & IA' })
+    .setFooter({ text: `AVA Agency Bot • Contenu & IA${isUS ? ' (US)' : ''}` })
     .setTimestamp();
 
   const row1 = new ActionRowBuilder().addComponents(
@@ -111,12 +113,19 @@ async function setupContentFactory(client, channelId, marketLabel) {
     new ButtonBuilder().setCustomId('content_cta').setLabel('🔗 CTA').setStyle(ButtonStyle.Primary),
   );
 
-  const row2 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('content_textbio').setLabel('📝 Bio').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('content_textstorycta').setLabel('📣 Story CTA').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('content_textprofil').setLabel('👤 Profil Texte').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('content_followfr').setLabel('🇫🇷 Follow FR').setStyle(ButtonStyle.Secondary),
-  );
+  const row2 = isUS
+    ? new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('content_sms').setLabel('📱 SMS').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('content_textbio').setLabel('📝 Bio').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('content_textstorycta').setLabel('📣 Story CTA').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('content_textprofil').setLabel('👤 Profil Texte').setStyle(ButtonStyle.Secondary),
+      )
+    : new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('content_textbio').setLabel('📝 Bio').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('content_textstorycta').setLabel('📣 Story CTA').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('content_textprofil').setLabel('👤 Profil Texte').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('content_followfr').setLabel('🇫🇷 Follow FR').setStyle(ButtonStyle.Secondary),
+      );
 
   await channel.send({ embeds: [embed], components: [row1, row2] });
   console.log(`✅ Content Factory publié dans le salon ${marketLabel} (mis à jour)`);
