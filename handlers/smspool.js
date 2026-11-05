@@ -77,6 +77,81 @@ async function handleSmspoolGetNumber(interaction) {
   activePollings[order_id] = pollInterval;
 }
 
+async function handleSmspoolGetNumberTwitter(interaction) {
+  await interaction.deferUpdate();
+
+  // Service 948 = Twitter / X, Country 1 = USA
+  const result = await getTemporaryNumber('948', '1');
+
+  if (!result.success || result.data.success === 0) {
+    const errorMsg = result.data ? result.data.message : result.error;
+    const embed = new EmbedBuilder()
+      .setColor(0xff9900)
+      .setTitle('⚠️ SMSPool Temporairement Saturé')
+      .setDescription(`Impossible d'obtenir un numéro Twitter : **${errorMsg}**\n\n*Les lignes SMSPool pour Twitter / X (USA) sont très sollicitées en ce moment. Clique sur le bouton ci-dessous pour réessayer.*`)
+      .setTimestamp();
+    
+    const retryRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('tw_smspool_get_number')
+        .setLabel('🔄 Réessayer maintenant')
+        .setStyle(ButtonStyle.Primary)
+    );
+
+    return interaction.editReply({ embeds: [embed], components: [retryRow] });
+  }
+
+  const { phonenumber, order_id } = result.data;
+
+  const embed = new EmbedBuilder()
+    .setColor(0x1da1f2)
+    .setTitle('📱 Numéro Twitter / X prêt !')
+    .setDescription(`Voici ton numéro temporaire. Rentre-le sur Twitter / X pour recevoir le code.\n\n📞 **Numéro :** \`+1${phonenumber}\`\n\n*(Je vérifie l'arrivée du SMS automatiquement toutes les 5 secondes...)*`)
+    .setFooter({ text: `Order ID: ${order_id}` });
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`smspool_cancel_${order_id}`)
+      .setLabel('🛑 Refund (Annuler)')
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  await interaction.editReply({ embeds: [embed], components: [row] });
+
+  let attempts = 0;
+  const pollInterval = setInterval(async () => {
+    attempts++;
+    try {
+      const checkRes = await checkSMS(order_id);
+      if (checkRes.success) {
+         const status = parseInt(checkRes.data.status);
+         if (status === 3) {
+           clearInterval(pollInterval);
+           delete activePollings[order_id];
+           
+           const successEmbed = new EmbedBuilder()
+             .setColor(0x1da1f2)
+             .setTitle('💬 SMS Twitter / X Reçu !')
+             .setDescription(`**Numéro :** \`+1${phonenumber}\`\n**Message :**\n\`${checkRes.data.sms}\``);
+             
+           await interaction.followUp({ content: `<@${interaction.user.id}> ton code Twitter / X est là !`, embeds: [successEmbed] });
+         } else if (status === 6) { // Canceled/Refunded
+           clearInterval(pollInterval);
+           delete activePollings[order_id];
+         }
+      }
+    } catch (err) {}
+
+    if (attempts >= 120) { // 10 minutes
+      clearInterval(pollInterval);
+      delete activePollings[order_id];
+      await interaction.followUp({ content: `<@${interaction.user.id}> ❌ **Délai expiré** (10 minutes) pour le numéro Twitter \`+1${phonenumber}\`. Arrêt de la vérification automatique.`, ephemeral: true }).catch(()=>{});
+    }
+  }, 5000);
+
+  activePollings[order_id] = pollInterval;
+}
+
 async function handleSmspoolCheck(interaction, orderId) {
   // Legacy function just in case
   await interaction.deferReply({ ephemeral: true });
@@ -161,4 +236,4 @@ async function handleSmspoolCancel(interaction, orderId) {
   }
 }
 
-module.exports = { handleSmspoolGetNumber, handleSmspoolCheck, handleSmspoolCancel };
+module.exports = { handleSmspoolGetNumber, handleSmspoolGetNumberTwitter, handleSmspoolCheck, handleSmspoolCancel };

@@ -227,4 +227,82 @@ ${text}
   throw lastError || new Error("La traduction a échoué via tous les modèles.");
 }
 
-module.exports = { initGemini, generateUniqueText, translateToEnglish };
+/**
+ * Reformule un texte pour Twitter / X (Bio ou Légende) via FreeLLM ou Gemini Direct
+ */
+async function generateTwitterText(baseText, type = 'bio') {
+  let prompt = '';
+  if (type === 'bio') {
+    prompt = `You are an elite Twitter / X social media strategist and ghostwriter for an attractive female model/influencer account.
+Here is an inspiration/reference bio:
+"${baseText}"
+
+Your task:
+Write a COMPLETELY UNIQUE, engaging, and irresistible Twitter / X bio based on this inspiration.
+CRITICAL RULES:
+- Maximum 160 characters (strict Twitter limit).
+- Tone: alluring, playful, mysterious, modern and stylish.
+- Include 1 or 2 subtle matching emojis.
+- Do NOT include hashtags or fake links unless present in the inspiration.
+- Output ONLY the bio text itself. No commentary, no quotes, no markdown blocks.`;
+  } else {
+    // Caption / Tweet
+    prompt = `You are an elite Twitter / X ghostwriter for a viral female model/influencer.
+Here is an inspiration caption or tweet:
+"${baseText}"
+
+Your task:
+Write a COMPLETELY UNIQUE, punchy, engaging tweet based on this idea.
+CRITICAL RULES:
+- Length: concise, punchy (between 1 and 3 lines max).
+- Style: high-engagement, flirty, conversational, question or bold statement that triggers replies and retweets.
+- Include 1 or 2 subtle emojis.
+- Output ONLY the tweet text itself. No hashtags (or max 1 relevant), no quotes, no commentary, no markdown code blocks.`;
+  }
+
+  // 1. Tenter d'abord via l'API locale FreeLLM
+  try {
+    return await generateViaFreeLLM(prompt);
+  } catch (freeLlmErr) {
+    console.warn(`⚠️ FreeLLM API non disponible pour Twitter (${freeLlmErr.message}), bascule sur l'API Gemini Direct...`);
+  }
+
+  // 2. Fallback direct via Google Generative AI SDK
+  if (!genAI) initGemini();
+  if (!genAI) throw new Error("Gemini API non configurée.");
+
+  let lastError = null;
+  for (const modelName of SDK_MODELS) {
+    let retries = 2;
+    while (retries >= 0) {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        let text = response.text().trim();
+
+        text = text.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '').trim();
+        text = text.replace(/^["']|["']$/g, '').trim();
+
+        // Si c'est une bio et dépasse 160 chars, tronquer proprement
+        if (type === 'bio' && text.length > 160) {
+          text = text.substring(0, 157) + '...';
+        }
+
+        return text;
+      } catch (err) {
+        lastError = err;
+        if (err.message && err.message.includes('503') && retries > 0) {
+          await sleep(2000);
+          retries--;
+        } else {
+          break;
+        }
+      }
+    }
+  }
+
+  throw new Error(`La génération Twitter a échoué: ${lastError?.message || 'Erreur inconnue'}`);
+}
+
+module.exports = { initGemini, generateUniqueText, translateToEnglish, generateTwitterText };

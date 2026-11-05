@@ -3,6 +3,7 @@ const { initChatterTables, setupChatterRevenuChannel, setupChatterAdminChannel, 
 const { initPenaltyTables, setupPenaltyPanelChannel } = require('../services/penaltyService');
 const { initComptaTables, setupComptaChannel, initMonthlyRecurringExpenses } = require('../services/comptaService');
 const { setupPushPanelChannel } = require('../services/pushService');
+const { setupTwitterContentFactory } = require('../handlers/twitterContentFactory');
 
 module.exports = {
   name: Events.ClientReady,
@@ -49,6 +50,13 @@ module.exports = {
       if (!item.id || processedIds.has(item.id)) continue;
       processedIds.add(item.id);
       await setupContentFactory(client, item.id, item.label);
+    }
+
+    // Publier le panneau Content Factory Twitter / X
+    try {
+      await setupTwitterContentFactory(client);
+    } catch (err) {
+      console.error('❌ Erreur setupTwitterContentFactory:', err);
     }
   },
 };

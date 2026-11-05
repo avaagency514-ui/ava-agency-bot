@@ -63,7 +63,7 @@ async function getTemporaryNumber(service, country = 'FR') {
       if (data.type === 'PORTS_OCCUPIED') {
         cleanError = 'Tous les slots/lignes SMSPool sont actuellement occupés. Réessaye dans 2 à 5 minutes.';
       } else if (data.type === 'OUT_OF_STOCK') {
-        cleanError = 'Rupture de stock temporaire pour Instagram (USA) chez SMSPool. Réessaye dans quelques minutes.';
+        cleanError = 'Rupture de stock temporaire pour ce service (USA) chez SMSPool. Réessaye dans quelques minutes.';
       } else if (data.message) {
         cleanError = data.message.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
       } else if (data.errors && Array.isArray(data.errors)) {

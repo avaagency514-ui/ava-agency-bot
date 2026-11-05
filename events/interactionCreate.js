@@ -82,6 +82,18 @@ module.exports = {
         const { handleFounderSelect } = require('../handlers/contentFactory');
         return handleFounderSelect(interaction);
       }
+
+      // Content Factory Twitter qty request
+      if (id.startsWith('tw_req_')) {
+        const { handleTwitterContentSelect } = require('../handlers/twitterContentFactory');
+        return handleTwitterContentSelect(interaction);
+      }
+
+      // Content Factory Twitter Profile ID Select
+      if (id.startsWith('tw_founder_select_')) {
+        const { handleTwitterFounderSelect } = require('../handlers/twitterContentFactory');
+        return handleTwitterFounderSelect(interaction);
+      }
     }
     if (interaction.isButton()) {
       const id = interaction.customId;
@@ -132,6 +144,18 @@ module.exports = {
       // Content Factory
       if (id.startsWith('content_')) {
         return handleContentFactory(interaction, client);
+      }
+
+      // Content Factory Twitter
+      if (id.startsWith('tw_content_')) {
+        const { handleTwitterContent } = require('../handlers/twitterContentFactory');
+        return handleTwitterContent(interaction);
+      }
+
+      // SMSPool Get Number Twitter
+      if (id === 'tw_smspool_get_number') {
+        const { handleSmspoolGetNumberTwitter } = require('../handlers/smspool');
+        return handleSmspoolGetNumberTwitter(interaction);
       }
 
       // Kick confirmé
