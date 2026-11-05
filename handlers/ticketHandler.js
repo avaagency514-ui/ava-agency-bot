@@ -290,6 +290,59 @@ function buildManagerPanel(poleKey, candidateId, assignedRoleName = null) {
   return { embed, row };
 }
 
+// ─── 3b. Offre et Créneaux pour le poste de Chatter ─────────────
+function buildChatterOfferEmbed(candidateId) {
+  return new EmbedBuilder()
+    .setTitle('📋 OFFRE DE RECRUTEMENT — POSTE DE CHATTER')
+    .setColor(CONFIG.poles.chatter.color || 0x3498db)
+    .setDescription(
+      `Bonjour <@${candidateId}> !\n` +
+      `Voici l'ensemble des conditions et notre offre pour rejoindre l'équipe de **Chatter** chez AVA Agency :\n\n` +
+      `⏰ **Créneaux de Shift disponibles (Heure de Paris / UTC+1)**\n` +
+      `Vous pouvez choisir parmi les 4 shifts suivants :\n\n` +
+      `• **Shift 1 :** 08h00 – 14h00\n` +
+      `• **Shift 2 :** 14h00 – 20h00\n` +
+      `• **Shift 3 :** 20h00 – 02h00\n` +
+      `• **Shift 4 :** 02h00 – 08h00\n\n` +
+      `💰 **Rémunération & Commission évolutive**\n` +
+      `Votre commission de base démarre à 10% sur toutes vos ventes et peut augmenter selon vos performances hebdomadaires :\n\n` +
+      `• **Niveau Base :** 10% de commission sur vos ventes.\n` +
+      `• **Niveau Performance (à partir de 500 € / semaine) :** Passage direct à 12% de commission.\n` +
+      `• **Niveau Top Chatter (à partir de 1 000 € / semaine) :** Passage direct à 15% de commission.\n\n` +
+      `💳 **Modalités de Paiement**\n` +
+      `• **Fréquence :** Tous les 15 jours (toutes les 2 semaines).\n` +
+      `• **Mode de paiement :** Crypto – USDT (Réseau TRC-20).\n\n` +
+      `👉 *Indiquez votre shift souhaité ci-dessous en cliquant sur l'un des boutons ou par message dans ce salon.*`
+    )
+    .setFooter({ text: 'AVA Agency • Recrutement Chatter • Heure de Paris (UTC+1)' })
+    .setTimestamp();
+}
+
+function buildChatterShiftButtons(candidateId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`ticket_chatter_shift:${candidateId}:1`)
+      .setLabel('Shift 1 (08h-14h)')
+      .setEmoji('🌅')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`ticket_chatter_shift:${candidateId}:2`)
+      .setLabel('Shift 2 (14h-20h)')
+      .setEmoji('☀️')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`ticket_chatter_shift:${candidateId}:3`)
+      .setLabel('Shift 3 (20h-02h)')
+      .setEmoji('🌙')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`ticket_chatter_shift:${candidateId}:4`)
+      .setLabel('Shift 4 (02h-08h)')
+      .setEmoji('🌌')
+      .setStyle(ButtonStyle.Primary)
+  );
+}
+
 // ─── 4. Gestionnaire d'interactions (Boutons) ─────────────────────
 async function handleTicketButton(interaction, client) {
   const id = interaction.customId;
@@ -325,12 +378,41 @@ async function handleTicketButton(interaction, client) {
       components: []
     });
 
+    // Envoyer directement l'offre au candidat
+    const offerEmbed = buildChatterOfferEmbed(candidateId);
+    const shiftRow = buildChatterShiftButtons(candidateId);
+
+    await interaction.channel.send({
+      content: `👋 <@${candidateId}> Voici l'offre officielle pour le poste de **Chatter** :`,
+      embeds: [offerEmbed],
+      components: [shiftRow]
+    });
+
     // Ping du manager + envoi du panneau manager
     const { embed: mgrEmbed, row: mgrRow } = buildManagerPanel('chatter', candidateId);
     return await interaction.channel.send({
       content: `🔔 Notification : <@&${CONFIG.poles.chatter.managerRoleId}> <@&${CONFIG.adminRoles[0]}> — Nouveau candidat **Chatter** !`,
       embeds: [mgrEmbed],
       components: [mgrRow]
+    });
+  }
+
+  // ── Cas 1b : Clic sur un bouton de choix de Shift par le candidat ──
+  if (action === 'ticket_chatter_shift') {
+    const shiftNum = parts[2];
+    const shiftHours = {
+      '1': '08h00 – 14h00',
+      '2': '14h00 – 20h00',
+      '3': '20h00 – 02h00',
+      '4': '02h00 – 08h00'
+    }[shiftNum] || '';
+
+    if (interaction.user.id !== candidateId && !isStaff(interaction.member)) {
+      return interaction.reply({ content: '⛔ Ce choix est réservé au candidat.', ephemeral: true });
+    }
+
+    return await interaction.reply({
+      content: `✅ <@${candidateId}> a indiqué sa préférence pour le **Shift ${shiftNum} (${shiftHours})** !\nUn Manager Chatter va échanger avec vous pour finaliser votre intégration.`
     });
   }
 
