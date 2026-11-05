@@ -153,6 +153,14 @@ function getMonthlyComptaData(targetMonth = null) {
     month: '2-digit',
   }).format(new Date()); // Ex: '2026-10'
 
+  // S'assurer que les charges récurrentes mensuelles (Telegram Premium, Salaire Modèle 700$, Managers 2x100$)
+  // sont bien initialisées et présentes pour le mois demandé
+  try {
+    initMonthlyRecurringExpenses(currentMonthStr);
+  } catch (err) {
+    console.warn(`[Compta] Avertissement init récurrentes pour ${currentMonthStr}:`, err.message);
+  }
+
   // 1. Coût VAs Telegram pour le mois (Canal FR, subs éligibles / 3)
   const vaSubsRow = db.prepare(`
     SELECT COUNT(*) as total_subs,
@@ -348,9 +356,10 @@ async function setupComptaChannel(client, targetMonth = null) {
                (data.monthStr === '2026-10' ? `👉 **Total VAs à virer : \$${(data.vaCost + (data.categories['VAs US / Clôture'] || 0)).toFixed(2)}** *(250.00\$ conforme au rapport)*\n` : '') +
                `• 💬 **Commissions Chatters** : **\$${data.chatterNetCommission.toFixed(2)}** nettes` +
                (data.chatterPenalties > 0 ? ` *(-\$${data.chatterPenalties.toFixed(2)} pénalités)*` : '') + `\n` +
-               `• 👑 **Salaire Modèle** : **\$${data.categories['Salaire Modèle'].toFixed(2)}** *(exceptionnellement 400\$, 700\$ à l'avenir)*\n` +
+               `• 👑 **Salaire Modèle** : **\$${data.categories['Salaire Modèle'].toFixed(2)}**` +
+               (data.monthStr === '2026-10' ? ` *(exceptionnellement 400\$, 700\$ à l'avenir)*\n` : ` *(700\$ fixe mensuel)*\n`) +
                `• 👔 **Salaires Managers (x2)** : **\$${data.categories['Salaires Managers'].toFixed(2)}**` +
-               (data.categories['Salaires Managers'] === 180 ? ` *(M1: \$100 [\$30 versés, \$70 dus], M2: \$80)*` : ''),
+               (data.monthStr === '2026-10' ? ` *(M1: \$100 [\$30 versés, \$70 dus], M2: \$80)*` : ` *(M1: \$100, M2: \$100 fixes)*`),
         inline: false,
       },
       {
@@ -437,6 +446,84 @@ function initMonthlyRecurringExpenses(targetMonth = null) {
       createdByName: 'Système Récurrent',
     });
     console.log(`📌 [Compta] Abonnement Telegram ($3.99) initialisé pour ${currentMonthStr}`);
+  }
+
+  // 2. Salaire Modèle : $700.00 fixe mensuel (sauf exception Octobre 2026 à $400.00)
+  const modelCount = db.prepare(`
+    SELECT COUNT(*) as count FROM agency_expenses
+    WHERE category = 'Salaire Modèle' AND strftime('%Y-%m', date) = ?
+  `).get(currentMonthStr);
+
+  if (!modelCount || modelCount.count === 0) {
+    const isOctober2026 = (currentMonthStr === '2026-10');
+    const modelAmount = isOctober2026 ? 400.00 : 700.00;
+    const modelDesc = isOctober2026
+      ? 'Salaire Modèle - Octobre 2026 (ajusté 400$ au lieu de 700$ fixe habituel)'
+      : `Salaire Modèle fixe mensuel ($700.00) — ${currentMonthStr}`;
+
+    addExpense({
+      category: 'Salaire Modèle',
+      amount: modelAmount,
+      description: modelDesc,
+      date: isOctober2026 ? '2026-10-31' : firstDayStr,
+      createdById: 'SYSTEM',
+      createdByName: 'Système Récurrent',
+    });
+    console.log(`📌 [Compta] Salaire Modèle ($${modelAmount}) initialisé pour ${currentMonthStr}`);
+  }
+
+  // 3. Salaires Managers (x2) : $200.00 fixes ($100 x 2) (sauf ajustement Octobre 2026 à $180.00)
+  const managerCount = db.prepare(`
+    SELECT COUNT(*) as count FROM agency_expenses
+    WHERE category = 'Salaires Managers' AND strftime('%Y-%m', date) = ?
+  `).get(currentMonthStr);
+
+  if (!managerCount || managerCount.count === 0) {
+    if (currentMonthStr === '2026-10') {
+      addExpense({
+        category: 'Salaires Managers',
+        amount: 30.00,
+        description: 'Acompte Salaire Manager 1 (déjà versé) - Octobre 2026',
+        date: '2026-10-15',
+        createdById: 'SYSTEM',
+        createdByName: 'Système Récurrent',
+      });
+      addExpense({
+        category: 'Salaires Managers',
+        amount: 70.00,
+        description: 'Solde restant Salaire Manager 1 (à virer) - Octobre 2026',
+        date: '2026-10-31',
+        createdById: 'SYSTEM',
+        createdByName: 'Système Récurrent',
+      });
+      addExpense({
+        category: 'Salaires Managers',
+        amount: 80.00,
+        description: 'Salaire Manager 2 (ajusté 80$ selon résultats) - Octobre 2026',
+        date: '2026-10-31',
+        createdById: 'SYSTEM',
+        createdByName: 'Système Récurrent',
+      });
+      console.log(`📌 [Compta] Salaires Managers ($180.00) initialisés pour Octobre 2026`);
+    } else {
+      addExpense({
+        category: 'Salaires Managers',
+        amount: 100.00,
+        description: `Salaire Manager 1 fixe mensuel ($100.00) — ${currentMonthStr}`,
+        date: firstDayStr,
+        createdById: 'SYSTEM',
+        createdByName: 'Système Récurrent',
+      });
+      addExpense({
+        category: 'Salaires Managers',
+        amount: 100.00,
+        description: `Salaire Manager 2 fixe mensuel ($100.00) — ${currentMonthStr}`,
+        date: firstDayStr,
+        createdById: 'SYSTEM',
+        createdByName: 'Système Récurrent',
+      });
+      console.log(`📌 [Compta] Salaires Managers (2x $100 = $200.00) initialisés pour ${currentMonthStr}`);
+    }
   }
 }
 

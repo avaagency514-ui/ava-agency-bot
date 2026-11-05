@@ -145,8 +145,8 @@ module.exports = {
                    (data.categories['VAs US / Clôture'] > 0 ? `• VAs Clôture US : **\$${data.categories['VAs US / Clôture'].toFixed(2)}**\n` : '') +
                    (data.categories['Régularisation VAs'] > 0 ? `• Régul. Malachie FR : **\$${data.categories['Régularisation VAs'].toFixed(2)}**\n` : '') +
                    `• Commissions Chatters : **\$${data.chatterNetCommission.toFixed(2)}**\n` +
-                   `• Salaire Modèle : **\$${data.categories['Salaire Modèle'].toFixed(2)}**\n` +
-                   `• Salaires Managers : **\$${data.categories['Salaires Managers'].toFixed(2)}**`,
+                   `• 👑 Salaire Modèle : **\$${data.categories['Salaire Modèle'].toFixed(2)}**` + (data.monthStr === '2026-10' ? ` *(exceptionnel 400\$)*\n` : ` *(fixe 700\$)*\n`) +
+                   `• 👔 Salaires Managers (x2) : **\$${data.categories['Salaires Managers'].toFixed(2)}**` + (data.monthStr === '2026-10' ? ` *(M1: 100\$, M2: 80\$)*` : ` *(2x 100\$)*`),
             inline: true,
           },
           {

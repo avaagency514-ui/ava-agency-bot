@@ -219,8 +219,8 @@ async function handleComptaButton(interaction, client) {
         (data.categories['VAs US / Clôture'] > 0 ? `  • VAs Clôture US : **-\$${data.categories['VAs US / Clôture'].toFixed(2)}** *(Malachie \$112 + Richi \$11)*\n` : '') +
         (data.monthStr === '2026-10' ? `  👉 **Sous-Total VAs : -\$${(data.vaCost + (data.categories['VAs US / Clôture'] || 0)).toFixed(2)}** *(conforme au rapport)*\n` : '') +
         `  • Commissions Chatters nettes : **-\$${data.chatterNetCommission.toFixed(2)}**\n` +
-        `  • Salaire Modèle : **-\$${data.categories['Salaire Modèle'].toFixed(2)}**\n` +
-        `  • Salaires Managers : **-\$${data.categories['Salaires Managers'].toFixed(2)}**\n` +
+        `  • 👑 Salaire Modèle : **-\$${data.categories['Salaire Modèle'].toFixed(2)}**` + (data.monthStr === '2026-10' ? ' *(exceptionnel 400$)*\n' : ' *(fixe 700$)*\n') +
+        `  • 👔 Salaires Managers (x2) : **-\$${data.categories['Salaires Managers'].toFixed(2)}**` + (data.monthStr === '2026-10' ? ' *(M1: 100$, M2: 80$)*\n' : ' *(2x 100$)*\n') +
         `  • Abonnement Telegram : **-\$${data.categories['Telegram Premium'].toFixed(2)}**\n` +
         `  • Ads & Publicités : **-\$${data.categories['Ads'].toFixed(2)}**\n` +
         `  • Comptes Twitter / Réseaux : **-\$${data.categories['Comptes Twitter'].toFixed(2)}**\n` +
