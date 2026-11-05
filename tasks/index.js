@@ -4,6 +4,7 @@ const { startTgTrackerReport } = require('./tgTrackerReport');
 const { startChatterDailyReport } = require('./chatterDailyReport');
 const { startChatterShiftWatchdog } = require('./chatterShiftWatchdog');
 const { startComptaMonthlyCron } = require('./comptaMonthlyCron');
+const { startAutoPushTask } = require('./autoPushCron');
 
 /**
  * Démarre toutes les tâches planifiées du bot
@@ -17,6 +18,7 @@ function startTasks(client) {
   startChatterDailyReport(client);
   startChatterShiftWatchdog(client);
   startComptaMonthlyCron(client);
+  startAutoPushTask(client);
   console.log('✅ Toutes les tâches sont actives');
 }
 

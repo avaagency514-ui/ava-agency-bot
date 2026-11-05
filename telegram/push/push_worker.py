@@ -28,6 +28,80 @@ CANCEL_FLAG_FILE = os.path.join(SCRIPT_DIR, "push_cancel.flag")
 
 HISTORY_FILE_DATA = os.path.join(DATA_DIR, "push_history.json")
 HISTORY_FILE_LOCAL = os.path.join(SCRIPT_DIR, "push_history.json")
+DELETE_QUEUE_DATA = os.path.join(DATA_DIR, "auto_delete_queue.json")
+DELETE_QUEUE_LOCAL = os.path.join(SCRIPT_DIR, "auto_delete_queue.json")
+
+def load_channel_subscribers():
+    """Charge les IDs des abonnés actuels au canal Telegram VIP."""
+    paths = [
+        os.path.join(DATA_DIR, "known_members.json"),
+        os.path.join(SCRIPT_DIR, "..", "welcome", "known_members.json"),
+        os.path.join(DATA_DIR, "known_members_fr.json")
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            try:
+                with open(p, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        return set(int(x) for x in data)
+                    elif isinstance(data, dict):
+                        return set(int(x) for x in data.keys())
+            except Exception:
+                pass
+    return set()
+
+def load_delete_queue():
+    for fpath in [DELETE_QUEUE_DATA, DELETE_QUEUE_LOCAL]:
+        if os.path.exists(fpath):
+            try:
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+    return []
+
+def save_delete_queue(queue):
+    for fpath in [DELETE_QUEUE_DATA, DELETE_QUEUE_LOCAL]:
+        try:
+            os.makedirs(os.path.dirname(fpath), exist_ok=True)
+            with open(fpath, 'w', encoding='utf-8') as f:
+                json.dump(queue, f, indent=2)
+        except Exception as e:
+            print(f"[PUSH] Erreur sauvegarde auto_delete_queue {fpath}: {e}", flush=True)
+
+def record_auto_delete(chat_id, msg_id, hours):
+    if hours <= 0:
+        return
+    queue = load_delete_queue()
+    delete_at = int(time.time() + hours * 3600)
+    queue.append({
+        "chat_id": int(chat_id),
+        "msg_id": int(msg_id),
+        "delete_at": delete_at
+    })
+    save_delete_queue(queue)
+
+async def process_auto_delete_queue(client):
+    """Vérifie et supprime les messages de push expirés."""
+    queue = load_delete_queue()
+    if not queue:
+        return
+    now_ts = int(time.time())
+    remaining = []
+    deleted_count = 0
+    for item in queue:
+        if now_ts >= item.get("delete_at", 0):
+            try:
+                await client.delete_messages(chat_id=item["chat_id"], message_ids=item["msg_id"])
+                deleted_count += 1
+            except Exception as e:
+                print(f"[PUSH] Erreur auto-suppression msg {item.get('msg_id')} pour {item.get('chat_id')}: {e}", flush=True)
+        else:
+            remaining.append(item)
+    if deleted_count > 0 or len(remaining) != len(queue):
+        save_delete_queue(remaining)
+        print(f"[PUSH] Auto-suppression terminée : {deleted_count} message(s) supprimé(s).", flush=True)
 
 try:
     from zoneinfo import ZoneInfo
@@ -169,9 +243,9 @@ async def create_client():
             print(f"[PUSH] Échec critique connexion Pyrogram: {e2}", flush=True)
             raise e2
 
-async def fetch_target_fans(client, exclude_hours=2):
+async def fetch_target_fans(client, exclude_hours=2, target_segment="all"):
     """
-    Récupère tous les fans ayant une conversation privée avec Kim.
+    Récupère les fans ciblés selon le segment (all, subscribers, interested, churned).
     Exclut STRICTEMENT les fans ayant déjà reçu un push aujourd'hui (1 push max par fan par jour).
     Exclut optionnellement les fans actifs récemment.
     """
@@ -180,10 +254,11 @@ async def fetch_target_fans(client, exclude_hours=2):
     excluded_active_count = 0
     excluded_already_sent_today = 0
     sent_today = get_sent_today_fans()
+    subscribers_set = load_channel_subscribers()
     now = datetime.now(timezone.utc)
     seen_ids = set()
 
-    print(f"[PUSH] Fans ayant déjà reçu un push aujourd'hui (exclus) : {len(sent_today)}", flush=True)
+    print(f"[PUSH] Cible demandée : {target_segment.upper()} | Abonnés VIP : {len(subscribers_set)} | Exclus aujourd'hui : {len(sent_today)}", flush=True)
     print("[PUSH] Récupération des conversations privées en cours...", flush=True)
     try:
         async for dialog in client.get_dialogs():
@@ -200,6 +275,12 @@ async def fetch_target_fans(client, exclude_hours=2):
                 # RÈGLE D'OR: Ne jamais envoyer 2 push à la même personne le même jour
                 if user_id in sent_today:
                     excluded_already_sent_today += 1
+                    continue
+
+                # Filtrage selon le segment
+                if target_segment == "subscribers" and user_id not in subscribers_set:
+                    continue
+                elif target_segment == "churned" and user_id in subscribers_set:
                     continue
 
                 # Vérification de l'exclusion des fans actifs récemment
@@ -222,21 +303,26 @@ async def fetch_target_fans(client, exclude_hours=2):
     except Exception as e:
         print(f"[PUSH] Avertissement lors de get_dialogs: {e}", flush=True)
 
-    # Compléter avec les peers SQLite connus si non encore vus
-    sqlite_peers = get_peers_from_sqlite()
-    for peer_id in sqlite_peers:
-        if peer_id not in seen_ids:
-            seen_ids.add(peer_id)
-            if peer_id in sent_today:
-                excluded_already_sent_today += 1
-                continue
-            targets.append({
-                "id": peer_id,
-                "name": f"Fan_{peer_id}",
-                "username": ""
-            })
+    # Compléter avec les peers SQLite connus si le segment l'autorise
+    if target_segment in ["all", "subscribers", "churned"]:
+        sqlite_peers = get_peers_from_sqlite()
+        for peer_id in sqlite_peers:
+            if peer_id not in seen_ids:
+                seen_ids.add(peer_id)
+                if peer_id in sent_today:
+                    excluded_already_sent_today += 1
+                    continue
+                if target_segment == "subscribers" and peer_id not in subscribers_set:
+                    continue
+                if target_segment == "churned" and peer_id in subscribers_set:
+                    continue
+                targets.append({
+                    "id": peer_id,
+                    "name": f"Fan_{peer_id}",
+                    "username": ""
+                })
 
-    print(f"[PUSH] Cibles retenues : {len(targets)} fans | Déjà contactés aujourd'hui : {excluded_already_sent_today} | Actifs < {exclude_hours}h : {excluded_active_count}", flush=True)
+    print(f"[PUSH] Cibles retenues ({target_segment}) : {len(targets)} fans | Déjà contactés aujourd'hui : {excluded_already_sent_today} | Actifs < {exclude_hours}h : {excluded_active_count}", flush=True)
     return targets, excluded_active_count, excluded_already_sent_today
 
 async def get_stats():
@@ -297,39 +383,41 @@ def prepare_audio_voice(file_path):
     return file_path
 
 async def send_single_push(client, user_id, text, media_path=None):
-    """Envoie le message ou le média (photo, vidéo, vocal) au fan donné."""
+    """Envoie le message ou le média (photo, vidéo, vocal) au fan donné et retourne le message envoyé."""
+    msg = None
     if media_path and os.path.exists(media_path):
         ext = os.path.splitext(media_path)[1].lower()
         caption = text if text and len(text) <= 1024 else None
 
         # 1. Photos
         if ext in ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.heic']:
-            await client.send_photo(chat_id=user_id, photo=media_path, caption=caption)
+            msg = await client.send_photo(chat_id=user_id, photo=media_path, caption=caption)
 
         # 2. Vidéos
         elif ext in ['.mp4', '.mov', '.webm', '.avi', '.mkv', '.m4v']:
-            await client.send_video(chat_id=user_id, video=media_path, caption=caption, supports_streaming=True)
+            msg = await client.send_video(chat_id=user_id, video=media_path, caption=caption, supports_streaming=True)
 
         # 3. Message Vocal / Audio
         elif ext in ['.ogg', '.opus']:
-            await client.send_voice(chat_id=user_id, voice=media_path, caption=caption)
+            msg = await client.send_voice(chat_id=user_id, voice=media_path, caption=caption)
         elif ext in ['.mp3', '.wav', '.m4a', '.aac', '.flac']:
             try:
-                await client.send_voice(chat_id=user_id, voice=media_path, caption=caption)
+                msg = await client.send_voice(chat_id=user_id, voice=media_path, caption=caption)
             except Exception:
-                await client.send_audio(chat_id=user_id, audio=media_path, caption=caption)
+                msg = await client.send_audio(chat_id=user_id, audio=media_path, caption=caption)
 
         # 4. Autres documents
         else:
-            await client.send_document(chat_id=user_id, document=media_path, caption=caption)
+            msg = await client.send_document(chat_id=user_id, document=media_path, caption=caption)
 
         # Si le texte était trop long pour la légende (> 1024 chars), envoyer en second message
         if text and len(text) > 1024:
             await client.send_message(chat_id=user_id, text=text)
     else:
-        await client.send_message(chat_id=user_id, text=text)
+        msg = await client.send_message(chat_id=user_id, text=text)
+    return msg
 
-async def run_push(job_id, text, media_path=None, exclude_hours=2, delay_min=58.0, delay_max=62.0):
+async def run_push(job_id, text, media_path=None, exclude_hours=2, delay_min=58.0, delay_max=62.0, target_segment="all", auto_delete_hours=0.0):
     """Exécute l'envoi en masse aux fans (cadence sécurisée: ~60s entre chaque message)."""
     from pyrogram.errors import (
         FloodWait, UserPrivacyRestricted, PeerIdInvalid, PeerFlood,
@@ -347,6 +435,8 @@ async def run_push(job_id, text, media_path=None, exclude_hours=2, delay_min=58.
         "text_preview": (text[:100] + "...") if len(text) > 100 else text,
         "has_media": bool(media_path and os.path.exists(media_path)),
         "media_name": os.path.basename(media_path) if media_path else None,
+        "target_segment": target_segment,
+        "auto_delete_hours": auto_delete_hours,
         "total": 0,
         "sent": 0,
         "skipped": 0,
@@ -365,7 +455,10 @@ async def run_push(job_id, text, media_path=None, exclude_hours=2, delay_min=58.
         me = client.me
         print(f"[PUSH] Connecté avec succès : {me.first_name} (@{me.username})", flush=True)
 
-        targets, excluded_active, excluded_today = await fetch_target_fans(client, exclude_hours=exclude_hours)
+        # Vérification et traitement de la file d'auto-suppression
+        await process_auto_delete_queue(client)
+
+        targets, excluded_active, excluded_today = await fetch_target_fans(client, exclude_hours=exclude_hours, target_segment=target_segment)
         total_targets = len(targets)
         status_data["total"] = total_targets
         status_data["excluded_active"] = excluded_active
@@ -373,7 +466,7 @@ async def run_push(job_id, text, media_path=None, exclude_hours=2, delay_min=58.
         write_status(status_data)
 
         if total_targets == 0:
-            msg = f"[PUSH] Aucun fan à contacter : {excluded_today} fans ont déjà reçu un push aujourd'hui (Règle : 1 push max/jour)."
+            msg = f"[PUSH] Aucun fan à contacter pour le segment '{target_segment}' : {excluded_today} fans déjà contactés aujourd'hui (1 max/jour)."
             print(msg, flush=True)
             status_data["status"] = "completed"
             status_data["percent"] = 100.0
@@ -404,10 +497,12 @@ async def run_push(job_id, text, media_path=None, exclude_hours=2, delay_min=58.
 
             while retries < 2 and not success:
                 try:
-                    await send_single_push(client, user_id, text, media_path)
+                    sent_msg = await send_single_push(client, user_id, text, media_path)
                     sent_count += 1
                     status_data["sent"] = sent_count
                     record_fan_push_sent(user_id)
+                    if auto_delete_hours > 0 and sent_msg and hasattr(sent_msg, 'id'):
+                        record_auto_delete(user_id, sent_msg.id, auto_delete_hours)
                     success = True
                     print(f"[PUSH] [{i+1}/{total_targets}] OK Envoyé à {name} ({user_id})", flush=True)
                 except FloodWait as fw:
@@ -459,6 +554,9 @@ async def run_push(job_id, text, media_path=None, exclude_hours=2, delay_min=58.
             print(f"[PUSH] ✅ Mass DM terminé avec succès ! Total: {sent_count} envoyés, {skipped_count} ignorés, {failed_count} erreurs.", flush=True)
             write_status(status_data)
 
+        # Nettoyage auto-suppression
+        await process_auto_delete_queue(client)
+
     except Exception as fatal_err:
         print(f"[PUSH] ❌ Erreur fatale push worker: {fatal_err}", flush=True)
         status_data["status"] = "failed"
@@ -473,13 +571,15 @@ async def run_push(job_id, text, media_path=None, exclude_hours=2, delay_min=58.
 
 def main():
     parser = argparse.ArgumentParser(description="Telegram Push Worker (Mass DM)")
-    parser.add_argument("--action", choices=["stats", "send", "cancel", "status"], default="status")
+    parser.add_argument("--action", choices=["stats", "send", "cancel", "status", "purge_expired"], default="status")
     parser.add_argument("--job-id", type=str, default="")
     parser.add_argument("--text", type=str, default="")
     parser.add_argument("--media", type=str, default="")
     parser.add_argument("--exclude-hours", type=float, default=2.0)
     parser.add_argument("--delay-min", type=float, default=58.0)
     parser.add_argument("--delay-max", type=float, default=62.0)
+    parser.add_argument("--target-segment", type=str, default="all")
+    parser.add_argument("--auto-delete-hours", type=float, default=0.0)
 
     args = parser.parse_args()
 
@@ -499,6 +599,14 @@ def main():
         asyncio.run(get_stats())
         return
 
+    if args.action == "purge_expired":
+        async def _purge():
+            c = await create_client()
+            await process_auto_delete_queue(c)
+            await c.disconnect()
+        asyncio.run(_purge())
+        return
+
     if args.action == "send":
         if not args.text and not args.media:
             print("[PUSH] Erreur: Un texte ou un média est requis pour l'envoi.")
@@ -510,7 +618,9 @@ def main():
             media_path=args.media if args.media else None,
             exclude_hours=args.exclude_hours,
             delay_min=args.delay_min,
-            delay_max=args.delay_max
+            delay_max=args.delay_max,
+            target_segment=args.target_segment,
+            auto_delete_hours=args.auto_delete_hours
         ))
 
 if __name__ == "__main__":

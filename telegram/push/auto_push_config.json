@@ -1,0 +1,45 @@
+{
+  "enabled": true,
+  "randomize_time": true,
+  "jitter_minutes": 10,
+  "exclude_active_hours": 2.0,
+  "auto_delete_hours": 0.0,
+  "slots": [
+    {
+      "id": "slot_1",
+      "time": "10:00",
+      "target": "subscribers",
+      "target_label": "Abonnés",
+      "text": "Coucou chéri 💋 J'ai une surprise pour toi ce matin... Viens vite voir en privé !",
+      "media_path": null,
+      "media_name": null,
+      "media_type": null,
+      "enabled": true,
+      "last_run": null
+    },
+    {
+      "id": "slot_2",
+      "time": "14:30",
+      "target": "interested",
+      "target_label": "Intéressés",
+      "text": "Tu fais quoi de ton après-midi ? Tu as envie qu'on s'amuse un peu ? 😘",
+      "media_path": null,
+      "media_name": null,
+      "media_type": null,
+      "enabled": true,
+      "last_run": null
+    },
+    {
+      "id": "slot_3",
+      "time": "21:00",
+      "target": "churned",
+      "target_label": "Anciens",
+      "text": "Coucou ! Ça fait longtemps qu'on ne s'est pas parlé... Tu m'as manqué, dis-moi ce que tu deviens 💕",
+      "media_path": null,
+      "media_name": null,
+      "media_type": null,
+      "enabled": true,
+      "last_run": null
+    }
+  ]
+}

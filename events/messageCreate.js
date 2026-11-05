@@ -1,16 +1,17 @@
 /**
  * events/messageCreate.js
- * Écoute les messages Discord pour détecter les créations de Push directes
+ * Écoute les messages Discord pour détecter les créations et dépôts de contenus
  * dans le salon dédié aux Push Telegram (#push).
  */
-const { Events, AttachmentBuilder } = require('discord.js');
+const { Events, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 const path = require('path');
 const fs = require('fs');
 const {
   CHANNEL_PUSH_ID,
+  DATA_MEDIA_DIR,
+  LOCAL_MEDIA_DIR,
   draftPushes,
-  buildDraftEmbed,
-  buildDraftButtons,
+  readAutoPushConfig,
   downloadFile
 } = require('../services/pushService');
 
@@ -44,7 +45,9 @@ module.exports = {
 
         const ext = path.extname(mediaName) || '.jpg';
         const destFileName = `push_${Date.now()}_${message.author.id}${ext}`;
-        const destPath = path.join(__dirname, '..', 'temp', 'push_media', destFileName);
+        // Enregistrer de préférence dans DATA_MEDIA_DIR (volume persistant)
+        const targetDir = fs.existsSync(DATA_MEDIA_DIR) ? DATA_MEDIA_DIR : LOCAL_MEDIA_DIR;
+        const destPath = path.join(targetDir, destFileName);
 
         try {
           await downloadFile(mediaUrl, destPath);
@@ -54,6 +57,7 @@ module.exports = {
         }
       }
 
+      const autoConfig = readAutoPushConfig();
       const draft = {
         id: draftId,
         authorId: message.author.id,
@@ -62,29 +66,57 @@ module.exports = {
         mediaUrl: mediaUrl,
         mediaPath: mediaPath,
         mediaName: mediaName,
-        excludeHours: 2.0,
+        excludeHours: autoConfig.exclude_active_hours || 2.0,
         createdAt: Date.now()
       };
 
       draftPushes.set(draftId, draft);
 
-      const embed = buildDraftEmbed(draft);
-      const row = buildDraftButtons(draftId);
+      const embed = new EmbedBuilder()
+        .setColor(0xec407a)
+        .setTitle('📥 NOUVEAU CONTENU DÉPOSÉ DANS #PUSH')
+        .setDescription(
+          `👋 <@${message.author.id}> a préparé un contenu pour **Kim 💖** !\n\n` +
+          `💬 **Message :** ${draft.text ? (draft.text.length > 200 ? draft.text.substring(0, 200) + '...' : draft.text) : '*[Média sans texte]*'}\n` +
+          `📎 **Média joint :** ${mediaName ? `\`${mediaName}\`` : '*Aucun fichier*'}\n\n` +
+          `👉 **Que souhaites-tu faire avec ce contenu ?**\n` +
+          `Assigne ce contenu à l'un des créneaux quotidiens d'**Auto-Push** ou diffuse-le immédiatement :`
+        );
+
+      const slotButtons = (autoConfig.slots || []).map(slot =>
+        new ButtonBuilder()
+          .setCustomId(`push_assign_slot_${slot.id}_${draftId}`)
+          .setLabel(`🕒 ${slot.time} (${slot.target_label || slot.target})`)
+          .setStyle(ButtonStyle.Primary)
+      );
+
+      const row1 = new ActionRowBuilder().addComponents(slotButtons);
+
+      const row2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`push_slot_immediate_${draftId}`)
+          .setLabel('⚡ Envoyer en Direct (Immédiat)')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`push_cancel_${draftId}`)
+          .setLabel('❌ Annuler')
+          .setStyle(ButtonStyle.Danger)
+      );
 
       const payload = {
-        content: `👋 Nouveau push préparé par <@${message.author.id}> :`,
         embeds: [embed],
-        components: [row]
+        components: [row1, row2]
       };
 
-      if (mediaPath && fs.existsSync(mediaPath)) {
+      if (mediaPath && fs.existsSync(mediaPath) && (mediaName.endsWith('.jpg') || mediaName.endsWith('.png') || mediaName.endsWith('.jpeg') || mediaName.endsWith('.webp'))) {
         payload.files = [new AttachmentBuilder(mediaPath, { name: mediaName })];
+        embed.setImage(`attachment://${mediaName}`);
       }
 
       // Supprimer le message brut du chatter pour garder le salon 100% propre
       await message.delete().catch(() => {});
 
-      // Envoyer le panneau de confirmation avec le média attaché
+      // Envoyer le panneau d'orientation du contenu
       await message.channel.send(payload);
 
     } catch (err) {
