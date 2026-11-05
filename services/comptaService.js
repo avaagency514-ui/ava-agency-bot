@@ -256,8 +256,9 @@ function getMonthlyComptaData(targetMonth = null) {
   // 7. Bénéfice Net
   const netProfit = Math.round((totalGrossRevenue - totalExpenses) * 100) / 100;
 
-  // 8. Répartition 50 / 50
-  const associateShare = Math.round((netProfit / 2) * 100) / 100;
+  // 8. Part Fondateur (100% - plus d'associés)
+  const founderShare = netProfit;
+  const associateShare = netProfit;
 
   // Formattage du mois lisible (ex: "Octobre 2026")
   const dateObj = new Date(`${currentMonthStr}-01T12:00:00Z`);
@@ -285,6 +286,7 @@ function getMonthlyComptaData(targetMonth = null) {
     totalGrossRevenue,
     totalExpenses,
     netProfit,
+    founderShare,
     associateShare,
   };
 }
@@ -335,9 +337,7 @@ async function setupComptaChannel(client, targetMonth = null) {
       `📉 **Total des Charges & Dépenses :** \`-$${data.totalExpenses.toFixed(2)}\`\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
       `💎 **BÉNÉFICE NET DU MOIS :** \`$${data.netProfit.toFixed(2)}\`\n\n` +
-      `🤝 **RÉPARTITION ASSOCIÉS (50% / 50%) :**\n` +
-      `  └ 👑 **Part Associé 1 (50%) :** **\`$${data.associateShare.toFixed(2)}\`**\n` +
-      `  └ 👑 **Part Associé 2 (50%) :** **\`$${data.associateShare.toFixed(2)}\`**\n` +
+      `👑 **PART DU FONDATEUR (100%) :** **\`$${data.netProfit.toFixed(2)}\`**\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
     )
     .addFields(
@@ -356,10 +356,8 @@ async function setupComptaChannel(client, targetMonth = null) {
                (data.monthStr === '2026-10' ? `👉 **Total VAs à virer : \$${(data.vaCost + (data.categories['VAs US / Clôture'] || 0)).toFixed(2)}** *(250.00\$ conforme au rapport)*\n` : '') +
                `• 💬 **Commissions Chatters** : **\$${data.chatterNetCommission.toFixed(2)}** nettes` +
                (data.chatterPenalties > 0 ? ` *(-\$${data.chatterPenalties.toFixed(2)} pénalités)*` : '') + `\n` +
-               `• 👑 **Salaire Modèle** : **\$${data.categories['Salaire Modèle'].toFixed(2)}**` +
-               (data.monthStr === '2026-10' ? ` *(exceptionnellement 400\$, 700\$ à l'avenir)*\n` : ` *(700\$ fixe mensuel)*\n`) +
-               `• 👔 **Salaires Managers (x2)** : **\$${data.categories['Salaires Managers'].toFixed(2)}**` +
-               (data.monthStr === '2026-10' ? ` *(M1: \$100 [\$30 versés, \$70 dus], M2: \$80)*` : ` *(M1: \$100, M2: \$100 fixes)*`),
+               `• 👑 **Salaire Modèle** : **\$${data.categories['Salaire Modèle'].toFixed(2)}** *(fixe 700$)*\n` +
+               `• 👔 **Salaires Managers (x2)** : **\$${data.categories['Salaires Managers'].toFixed(2)}** *(M1: \$100, M2: \$100)*`,
         inline: false,
       },
       {
@@ -374,7 +372,7 @@ async function setupComptaChannel(client, targetMonth = null) {
         inline: false,
       }
     )
-    .setFooter({ text: 'AVA Agency • Comptabilité Officielle & Partage 50/50' })
+    .setFooter({ text: 'AVA Agency • Comptabilité Officielle & Bénéfice Fondateur' })
     .setTimestamp();
 
   // Boutons d'action
@@ -430,6 +428,25 @@ function initMonthlyRecurringExpenses(targetMonth = null) {
 
   const firstDayStr = `${currentMonthStr}-01`;
 
+  // Migration automatique des anciens enregistrements en base :
+  // 1. Salaire Modèle = 700$ fixe (plus d'exception à 400$)
+  try {
+    db.prepare(`
+      UPDATE agency_expenses 
+      SET amount = 700.00, description = 'Salaire Modèle fixe mensuel ($700.00)' 
+      WHERE category = 'Salaire Modèle' AND amount = 400.00
+    `).run();
+  } catch (e) {}
+
+  // 2. Salaires Managers = 100$ chacun (Manager 2 passe de 80$ à 100$)
+  try {
+    db.prepare(`
+      UPDATE agency_expenses 
+      SET amount = 100.00, description = 'Salaire Manager 2 fixe mensuel ($100.00)' 
+      WHERE category = 'Salaires Managers' AND amount = 80.00
+    `).run();
+  } catch (e) {}
+
   // 1. Abonnement Telegram Premium : $3.99 chaque mois
   const tgCount = db.prepare(`
     SELECT COUNT(*) as count FROM agency_expenses
@@ -448,82 +465,48 @@ function initMonthlyRecurringExpenses(targetMonth = null) {
     console.log(`📌 [Compta] Abonnement Telegram ($3.99) initialisé pour ${currentMonthStr}`);
   }
 
-  // 2. Salaire Modèle : $700.00 fixe mensuel (sauf exception Octobre 2026 à $400.00)
+  // 2. Salaire Modèle : $700.00 fixe mensuel
   const modelCount = db.prepare(`
     SELECT COUNT(*) as count FROM agency_expenses
     WHERE category = 'Salaire Modèle' AND strftime('%Y-%m', date) = ?
   `).get(currentMonthStr);
 
   if (!modelCount || modelCount.count === 0) {
-    const isOctober2026 = (currentMonthStr === '2026-10');
-    const modelAmount = isOctober2026 ? 400.00 : 700.00;
-    const modelDesc = isOctober2026
-      ? 'Salaire Modèle - Octobre 2026 (ajusté 400$ au lieu de 700$ fixe habituel)'
-      : `Salaire Modèle fixe mensuel ($700.00) — ${currentMonthStr}`;
-
     addExpense({
       category: 'Salaire Modèle',
-      amount: modelAmount,
-      description: modelDesc,
-      date: isOctober2026 ? '2026-10-31' : firstDayStr,
+      amount: 700.00,
+      description: `Salaire Modèle fixe mensuel ($700.00) — ${currentMonthStr}`,
+      date: firstDayStr,
       createdById: 'SYSTEM',
       createdByName: 'Système Récurrent',
     });
-    console.log(`📌 [Compta] Salaire Modèle ($${modelAmount}) initialisé pour ${currentMonthStr}`);
+    console.log(`📌 [Compta] Salaire Modèle ($700.00) initialisé pour ${currentMonthStr}`);
   }
 
-  // 3. Salaires Managers (x2) : $200.00 fixes ($100 x 2) (sauf ajustement Octobre 2026 à $180.00)
+  // 3. Salaires Managers (x2) : $200.00 fixes ($100 x 2)
   const managerCount = db.prepare(`
     SELECT COUNT(*) as count FROM agency_expenses
     WHERE category = 'Salaires Managers' AND strftime('%Y-%m', date) = ?
   `).get(currentMonthStr);
 
   if (!managerCount || managerCount.count === 0) {
-    if (currentMonthStr === '2026-10') {
-      addExpense({
-        category: 'Salaires Managers',
-        amount: 30.00,
-        description: 'Acompte Salaire Manager 1 (déjà versé) - Octobre 2026',
-        date: '2026-10-15',
-        createdById: 'SYSTEM',
-        createdByName: 'Système Récurrent',
-      });
-      addExpense({
-        category: 'Salaires Managers',
-        amount: 70.00,
-        description: 'Solde restant Salaire Manager 1 (à virer) - Octobre 2026',
-        date: '2026-10-31',
-        createdById: 'SYSTEM',
-        createdByName: 'Système Récurrent',
-      });
-      addExpense({
-        category: 'Salaires Managers',
-        amount: 80.00,
-        description: 'Salaire Manager 2 (ajusté 80$ selon résultats) - Octobre 2026',
-        date: '2026-10-31',
-        createdById: 'SYSTEM',
-        createdByName: 'Système Récurrent',
-      });
-      console.log(`📌 [Compta] Salaires Managers ($180.00) initialisés pour Octobre 2026`);
-    } else {
-      addExpense({
-        category: 'Salaires Managers',
-        amount: 100.00,
-        description: `Salaire Manager 1 fixe mensuel ($100.00) — ${currentMonthStr}`,
-        date: firstDayStr,
-        createdById: 'SYSTEM',
-        createdByName: 'Système Récurrent',
-      });
-      addExpense({
-        category: 'Salaires Managers',
-        amount: 100.00,
-        description: `Salaire Manager 2 fixe mensuel ($100.00) — ${currentMonthStr}`,
-        date: firstDayStr,
-        createdById: 'SYSTEM',
-        createdByName: 'Système Récurrent',
-      });
-      console.log(`📌 [Compta] Salaires Managers (2x $100 = $200.00) initialisés pour ${currentMonthStr}`);
-    }
+    addExpense({
+      category: 'Salaires Managers',
+      amount: 100.00,
+      description: `Salaire Manager 1 fixe mensuel ($100.00) — ${currentMonthStr}`,
+      date: firstDayStr,
+      createdById: 'SYSTEM',
+      createdByName: 'Système Récurrent',
+    });
+    addExpense({
+      category: 'Salaires Managers',
+      amount: 100.00,
+      description: `Salaire Manager 2 fixe mensuel ($100.00) — ${currentMonthStr}`,
+      date: firstDayStr,
+      createdById: 'SYSTEM',
+      createdByName: 'Système Récurrent',
+    });
+    console.log(`📌 [Compta] Salaires Managers (2x $100 = $200.00) initialisés pour ${currentMonthStr}`);
   }
 }
 

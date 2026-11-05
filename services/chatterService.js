@@ -19,6 +19,8 @@ function initChatterTables() {
       commission_rate   REAL NOT NULL DEFAULT 10.0,
       sales_target      REAL NOT NULL DEFAULT 500.0,
       status            TEXT NOT NULL DEFAULT 'Actif', -- 'Actif' ou 'Repos'
+      role              TEXT NOT NULL DEFAULT 'Chatter',
+      override_rate     REAL NOT NULL DEFAULT 0.0,
       created_at        TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -130,6 +132,38 @@ function initChatterTables() {
     }
     console.log('✅ Chatters initiaux importés avec succès (7 chatters configurés).');
   }
+
+  // Migration des colonnes pour le support des rôles et commissions d'équipe (Manager Chatter)
+  try {
+    db.exec(`ALTER TABLE chatters ADD COLUMN role TEXT NOT NULL DEFAULT 'Chatter'`);
+  } catch (e) {}
+  try {
+    db.exec(`ALTER TABLE chatters ADD COLUMN override_rate REAL NOT NULL DEFAULT 0.0`);
+  } catch (e) {}
+
+  ensureUrielManagerChatter();
+}
+
+function ensureUrielManagerChatter() {
+  try {
+    const uriel = db.prepare('SELECT * FROM chatters WHERE LOWER(name) = ?').get('uriel');
+    if (!uriel) {
+      db.prepare(`
+        INSERT INTO chatters (name, assigned_account, shift, commission_rate, override_rate, role, sales_target, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run('Uriel', 'Kim', 'Manager (Tous Shifts)', 12.0, 3.0, 'Manager Chatter', 1000.0, 'Actif');
+      console.log('✅ Manager Chatter Uriel (12% perso / 3% équipe) initialisé.');
+    } else {
+      db.prepare(`
+        UPDATE chatters 
+        SET commission_rate = 12.0, override_rate = 3.0, role = 'Manager Chatter', status = 'Actif'
+        WHERE id = ?
+      `).run(uriel.id);
+      console.log('✅ Manager Chatter Uriel (12% perso / 3% équipe) mis à jour.');
+    }
+  } catch (err) {
+    console.error('⚠️ Erreur ensureUrielManagerChatter:', err.message);
+  }
 }
 
 // ─── Fonctions CRUD Chatters ──────────────────────────────────────────────────
@@ -214,6 +248,43 @@ function recordSale({ chatterId, subName, ppvName, amount, discordUserId = null 
     commission
   );
 
+  // Commission override manager (ex: Uriel 3% sur toutes les ventes des chatters qu'il dirige)
+  let managerCommissionEarned = 0;
+  let managerName = null;
+
+  try {
+    const managers = db.prepare(`
+      SELECT * FROM chatters 
+      WHERE (role = 'Manager Chatter' OR override_rate > 0) 
+        AND status = 'Actif'
+        AND id != ?
+    `).all(chatter.id);
+
+    for (const mgr of managers) {
+      const mgrRate = mgr.override_rate || 3.0;
+      const mgrCommission = Math.round((saleAmount * (mgrRate / 100)) * 100) / 100;
+      if (mgrCommission > 0) {
+        db.prepare(`
+          INSERT INTO chatter_sales (chatter_id, chatter_name, discord_user_id, sub_name, ppv_name, amount, commission_rate, commission_earned, is_paid)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+        `).run(
+          mgr.id,
+          mgr.name,
+          mgr.discord_user_id || null,
+          subName.trim(),
+          `👔 Override Manager (${mgrRate}%) [${chatter.name}]`,
+          saleAmount,
+          mgrRate,
+          mgrCommission
+        );
+        managerCommissionEarned += mgrCommission;
+        managerName = mgr.name;
+      }
+    }
+  } catch (err) {
+    console.error('Erreur override manager chatter:', err.message);
+  }
+
   return {
     saleId: res.lastInsertRowid,
     chatter,
@@ -222,6 +293,8 @@ function recordSale({ chatterId, subName, ppvName, amount, discordUserId = null 
     amount: saleAmount,
     commissionRate: rate,
     commissionEarned: commission,
+    managerCommissionEarned,
+    managerName,
   };
 }
 
@@ -303,6 +376,8 @@ function getGlobalDashboardData() {
     chatterList.push({
       id: c.id,
       name: c.name,
+      role: c.role || 'Chatter',
+      overrideRate: c.override_rate || 0.0,
       discordUserId: c.discord_user_id,
       account: c.assigned_account,
       shift: c.shift,
@@ -908,7 +983,10 @@ async function setupChatterAdminChannel(client) {
   let listText = '';
   for (const c of dash.chatterList) {
     const statusEmoji = c.status.toLowerCase() === 'actif' ? '🟢 `Actif`' : '⚪ `Repos`';
-    listText += `• **${c.name}** (${c.account} · *${c.shift}*) : **\$${c.sales.toFixed(2)}** ventes $\\rightarrow$ **\$${c.commission.toFixed(2)}** dû (${c.rate}%) — ${statusEmoji}\n`;
+    const isMgr = c.role === 'Manager Chatter';
+    const title = isMgr ? `👔 **${c.name} (Manager)**` : `**${c.name}**`;
+    const rateText = isMgr ? `${c.rate}% perso · ${c.overrideRate || 3}% équipe` : `${c.rate}%`;
+    listText += `• ${title} (${c.account} · *${c.shift}*) : **\$${c.sales.toFixed(2)}** ventes $\\rightarrow$ **\$${c.commission.toFixed(2)}** dû (${rateText}) — ${statusEmoji}\n`;
   }
 
   if (listText) {
@@ -953,26 +1031,39 @@ async function postSaleNotification(client, saleData) {
       { name: '🎬 PPV / Média', value: `\`${ppvName}\``, inline: true },
       { name: '💵 Montant Brut Vente', value: `**$${amount.toFixed(2)}**`, inline: true },
       { name: '📊 Taux Commission', value: `**${commissionRate}%**`, inline: true },
-      { name: '💎 Commission Chatter', value: `**+$${commissionEarned.toFixed(2)}**`, inline: true },
-      {
-        name: '🧮 Détail des Calculs Directs',
-        value: `• **Calcul Commission :** \`$${amount.toFixed(2)} × ${commissionRate}% = +$${commissionEarned.toFixed(2)}\`\n` +
-               `• **Part Nette Agence :** \`$${amount.toFixed(2)} - $${commissionEarned.toFixed(2)} = $${agencyShare.toFixed(2)}\` (${agencyRate}%)\n` +
-               `• **Progression Cumul :** \`$${previousCommission.toFixed(2)} → $${stats.pendingTotalCommission.toFixed(2)}\``,
-        inline: false,
-      },
-      {
-        name: '📈 Total Cumulé en attente (Cycle 2 sem.)',
-        value: `**$${stats.pendingTotalCommission.toFixed(2)}** *(sur $${stats.pendingTotalSales.toFixed(2)} de ventes — ${stats.pendingSalesCount} vente(s))*`,
-        inline: false,
-      },
-      {
-        name: `🎯 Objectif ($${chatter.sales_target.toFixed(2)})`,
-        value: `${progressBar} **${stats.progress.toFixed(1)}%**`,
-        inline: false,
-      }
-    )
-    .setFooter({ text: 'AVA Agency • Suivi des Ventes en Direct' })
+      { name: '💎 Commission Chatter', value: `**+$${commissionEarned.toFixed(2)}**`, inline: true }
+    );
+
+  if (saleData.managerCommissionEarned > 0) {
+    embed.addFields({
+      name: `👔 Commission Manager (${saleData.managerName || 'Uriel'})`,
+      value: `**+$${saleData.managerCommissionEarned.toFixed(2)}** *(3% override sur l'équipe)*`,
+      inline: true,
+    });
+  }
+
+  embed.addFields(
+    {
+      name: '🧮 Détail des Calculs Directs',
+      value: `• **Calcul Commission :** \`$${amount.toFixed(2)} × ${commissionRate}% = +$${commissionEarned.toFixed(2)}\`\n` +
+             (saleData.managerCommissionEarned > 0 ? `• **Override Manager (${saleData.managerName || 'Uriel'}) :** \`+$${saleData.managerCommissionEarned.toFixed(2)}\` (3%)\n` : '') +
+             `• **Part Nette Agence :** \`$${amount.toFixed(2)} - $${(commissionEarned + (saleData.managerCommissionEarned || 0)).toFixed(2)} = $${(agencyShare - (saleData.managerCommissionEarned || 0)).toFixed(2)}\`\n` +
+             `• **Progression Cumul :** \`$${previousCommission.toFixed(2)} → $${stats.pendingTotalCommission.toFixed(2)}\``,
+      inline: false,
+    },
+    {
+      name: '📈 Total Cumulé en attente (Cycle 2 sem.)',
+      value: `**$${stats.pendingTotalCommission.toFixed(2)}** *(sur $${stats.pendingTotalSales.toFixed(2)} de ventes — ${stats.pendingSalesCount} vente(s))*`,
+      inline: false,
+    },
+    {
+      name: `🎯 Objectif ($${chatter.sales_target.toFixed(2)})`,
+      value: `${progressBar} **${stats.progress.toFixed(1)}%**`,
+      inline: false,
+    }
+  );
+
+  embed.setFooter({ text: 'AVA Agency • Suivi des Ventes en Direct' })
     .setTimestamp();
 
   await channel.send({ embeds: [embed] });
@@ -1096,7 +1187,10 @@ async function sendDailyChatterSalesReport(client, targetDateStr = null, forcedC
     const mention = c.chatter.discord_user_id ? `<@${c.chatter.discord_user_id}>` : `**${c.chatter.name}**`;
     const pendingComm = stats ? stats.pendingTotalCommission : c.totalCommission;
 
-    chatterRowsText += `${statusEmoji} ${mention} (*${c.chatter.shift}* · ${c.chatter.commission_rate}%)\n` +
+    const isMgr = c.chatter.role === 'Manager Chatter';
+    const title = isMgr ? `👔 ${mention} *(Manager Chatter · ${c.chatter.commission_rate}% perso / ${c.chatter.override_rate || 3}% équipe)*` : `${mention} (*${c.chatter.shift}* · ${c.chatter.commission_rate}%)`;
+
+    chatterRowsText += `${statusEmoji} ${title}\n` +
       `  └ 📅 **Aujourd'hui :** **\$${c.totalSales.toFixed(2)}** (${c.salesCount} vente(s)) $\\rightarrow$ **+\$${c.totalCommission.toFixed(2)}** comm.\n` +
       `  └ 📈 **Cumul Cycle (2 sem.) :** **\$${pendingComm.toFixed(2)}** en attente\n\n`;
   }
