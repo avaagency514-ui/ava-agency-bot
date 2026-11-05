@@ -10,5 +10,7 @@
     "video_dir": "media/video",
     "discord_webhook": "https://discord.com/api/webhooks/1552356780741501088/5oyZa2qBNC94UBDBc_Ua5Qcv12zjUig4UuvV9ao0RNIDYB9nCEc7jGmp3cjAgXheB233",
     "last_voice_date": "2026-11-02",
+    "max_posts_per_day": 10,
+    "min_minutes_between_posts": 25,
     "english_channels": []
 }
