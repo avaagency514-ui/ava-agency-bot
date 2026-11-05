@@ -34,13 +34,22 @@ module.exports = {
       console.error('❌ Erreur initialisation Chatters :', err);
     }
 
-    // Publier le message Content Factory pour les salons FR
-    await setupContentFactory(client, process.env.CHANNEL_CONTENT_FR, 'FR');
-    await setupContentFactory(client, process.env.CHANNEL_CONTENT_FR_MOBILE, 'FR (Mobile)');
+    // Publier le message Content Factory pour tous les salons configurés + salons demandés
+    const targetChannels = [
+      { id: process.env.CHANNEL_CONTENT_FR, label: 'FR' },
+      { id: process.env.CHANNEL_CONTENT_FR_MOBILE, label: 'FR (Mobile)' },
+      { id: process.env.CHANNEL_CONTENT_US, label: 'US' },
+      { id: process.env.CHANNEL_CONTENT_US_MOBILE, label: 'US (Mobile)' },
+      { id: '1472915645153939559', label: '1472915645153939559' },
+      { id: '1556360802699841607', label: '1556360802699841607' },
+    ];
 
-    // Publier le message Content Factory pour les salons US (avec SMS)
-    await setupContentFactory(client, process.env.CHANNEL_CONTENT_US, 'US');
-    await setupContentFactory(client, process.env.CHANNEL_CONTENT_US_MOBILE, 'US (Mobile)');
+    const processedIds = new Set();
+    for (const item of targetChannels) {
+      if (!item.id || processedIds.has(item.id)) continue;
+      processedIds.add(item.id);
+      await setupContentFactory(client, item.id, item.label);
+    }
   },
 };
 
@@ -65,12 +74,12 @@ async function purgeContentFactory(client, channelId, marketLabel) {
   console.log(`🧹 Anciens messages Content Factory purgés dans le salon ${marketLabel}`);
 }
 
-async function setupContentFactory(client, channelId, marketLabel) {
+async function setupContentFactory(client, channelId, marketLabel = '') {
   if (!channelId) return;
 
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel) {
-    console.warn(`⚠️ Salon bot-content introuvable pour ${marketLabel}. Vérifie l'ID dans .env`);
+    console.warn(`⚠️ Salon bot-content introuvable pour ${marketLabel} (${channelId}).`);
     return;
   }
 
@@ -88,19 +97,24 @@ async function setupContentFactory(client, channelId, marketLabel) {
     }
   }
 
-  const isUS = marketLabel.startsWith('US');
+  const chName = channel.name?.toLowerCase() || '';
+  const isUS = marketLabel.startsWith('US') ||
+               chName.includes('us') ||
+               chName.includes('usa') ||
+               channelId === process.env.CHANNEL_CONTENT_US ||
+               channelId === process.env.CHANNEL_CONTENT_US_MOBILE;
 
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
     .setTitle(`🎬 Content Factory — V2${isUS ? ' (US)' : ''}`)
-    .setDescription(isUS ? 'Clique sur un bouton pour générer du contenu, obtenir un SMS ou du texte (IA).' : 'Clique sur un bouton pour générer du contenu ou du texte (IA).')
+    .setDescription('Clique sur un bouton pour générer du contenu, obtenir un SMS ou du texte (IA).')
     .addFields({
       name: 'Médias',
       value: '**Reels** · **Post** · **PP** · **CTA**',
       inline: true
     }, {
-      name: isUS ? 'SMS & Textes' : 'Textes & Follow',
-      value: isUS ? '**SMS** · **Bio** · **Story CTA** · **Profil**' : '**Bio** · **Story CTA** · **Profil** · **Follow FR**',
+      name: isUS ? 'SMS & Textes' : 'Textes, Follow & SMS',
+      value: isUS ? '**SMS** · **Bio** · **Story CTA** · **Profil**' : '**Bio** · **Story CTA** · **Profil** · **Follow FR** · **SMS**',
       inline: true
     })
     .setFooter({ text: `AVA Agency Bot • Contenu & IA${isUS ? ' (US)' : ''}` })
@@ -125,8 +139,9 @@ async function setupContentFactory(client, channelId, marketLabel) {
         new ButtonBuilder().setCustomId('content_textstorycta').setLabel('📣 Story CTA').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('content_textprofil').setLabel('👤 Profil Texte').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('content_followfr').setLabel('🇫🇷 Follow FR').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('content_sms').setLabel('📱 SMS').setStyle(ButtonStyle.Danger),
       );
 
   await channel.send({ embeds: [embed], components: [row1, row2] });
-  console.log(`✅ Content Factory publié dans le salon ${marketLabel} (mis à jour)`);
+  console.log(`✅ Content Factory publié dans #${channel.name} (${channelId}) [${isUS ? 'US' : 'FR'}]`);
 }

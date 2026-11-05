@@ -125,6 +125,13 @@ function buildProfileSelectRow(type, profiles, page = 0) {
 
 function getMarketFromInteraction(interaction) {
   const chId = interaction.channelId;
+  const chName = interaction.channel?.name?.toLowerCase() || '';
+  if (chName.includes('us') || chName.includes('usa')) {
+    return 'US';
+  }
+  if (chName.includes('fr')) {
+    return 'FR';
+  }
   const isUs = (process.env.CHANNEL_CONTENT_US && chId === process.env.CHANNEL_CONTENT_US) ||
                (process.env.CHANNEL_CONTENT_US_MOBILE && chId === process.env.CHANNEL_CONTENT_US_MOBILE);
   return isUs ? 'US' : 'FR';
