@@ -257,9 +257,21 @@ function buildProgressEmbed(job, statusData) {
   const skipped = statusData.skipped || 0;
   const failed = statusData.failed || 0;
   const current = statusData.current_recipient || 'Initialisation...';
-  const statusLabel = statusData.status === 'paused_floodwait' 
-    ? '⏳ En pause FloodWait Telegram (reprise auto...)' 
-    : '🚀 Envoi en cours...';
+
+  let statusLabel = '🚀 Envoi en cours (cadence sécurisée: ~60s entre chaque fan)';
+  if (statusData.status === 'paused_floodwait') {
+    const pauseTime = statusData.pause_until ? `<t:${statusData.pause_until}:R>` : `~${Math.ceil((statusData.pause_duration || 60) / 60)} min`;
+    statusLabel = `⏳ En pause FloodWait Telegram (reprise auto ${pauseTime})`;
+  } else if (statusData.status === 'paused_flood') {
+    const pauseTime = statusData.pause_until ? `<t:${statusData.pause_until}:R>` : `~3 min`;
+    statusLabel = `⏳ En pause anti-flood Telegram (reprise auto ${pauseTime})`;
+  }
+
+  const remainingCount = Math.max(0, total - (sent + skipped + failed));
+  const remainingMinutes = remainingCount; // car ~60s par message
+  const hours = Math.floor(remainingMinutes / 60);
+  const mins = remainingMinutes % 60;
+  const remainingTimeStr = hours > 0 ? `${hours}h ${mins}min` : `${mins} min`;
 
   const embed = new EmbedBuilder()
     .setColor(0x2196f3)
@@ -267,6 +279,8 @@ function buildProgressEmbed(job, statusData) {
     .setDescription(
       `**Progression :** \`${bar}\` **${percent.toFixed(1)}%**\n` +
       `**Statut :** ${statusLabel}\n\n` +
+      `• **Cadence d'envoi :** \`1 message / 60 secondes (anti-blocage)\`\n` +
+      `• **Temps restant estimé :** \`~${remainingTimeStr}\`\n` +
       `• **Destinataire en cours :** \`${current}\`\n` +
       `• **Envoyés :** \`${sent} / ${total}\`\n` +
       `• **Exclus (déjà contactés aujourd'hui) :** \`${statusData.excluded_already_sent_today || getSentTodayCount()}\`\n` +
@@ -298,10 +312,24 @@ function buildCompletedEmbed(job, statusData) {
   const skipped = statusData.skipped || 0;
   const failed = statusData.failed || 0;
   const isCancelled = statusData.status === 'cancelled';
+  const isFailed = statusData.status === 'failed';
+
+  let title = '✅ PUSH TELEGRAM TERMINÉ AVEC SUCCÈS !';
+  let color = 0x4caf50;
+  if (isCancelled) {
+    title = '⚠️ PUSH INTERROMPU PAR LE CHATTER';
+    color = 0xff9800;
+  } else if (isFailed) {
+    title = '❌ PUSH ARRÊTÉ (ERREUR SYSTÈME)';
+    color = 0xf44336;
+  } else if ((sent + skipped + failed) < total && statusData.status !== 'completed') {
+    title = '⚠️ PUSH TERMINÉ (INCOMPLET)';
+    color = 0xff9800;
+  }
 
   return new EmbedBuilder()
-    .setColor(isCancelled ? 0xff9800 : 0x4caf50)
-    .setTitle(isCancelled ? '⚠️ PUSH INTERROMPU PAR LE CHATTER' : '✅ PUSH TELEGRAM TERMINÉ AVEC SUCCÈS !')
+    .setColor(color)
+    .setTitle(title)
     .setDescription(
       `Le Mass DM lancé par <@${job.authorId}> est désormais terminé.\n\n` +
       `📊 **Bilan de diffusion :**\n` +
@@ -374,7 +402,7 @@ async function downloadFile(url, destPath) {
 
 function isPushRunning() {
   const st = readStatus();
-  return currentJob !== null || st.status === 'running' || st.status === 'paused_floodwait';
+  return currentJob !== null || st.status === 'running' || st.status === 'paused_floodwait' || st.status === 'paused_flood';
 }
 
 function cancelRunningPush() {
@@ -413,13 +441,17 @@ async function startPush(draft, channel, client) {
   });
 
   const pyCmd = process.platform === 'win32' ? 'python' : 'python3';
+  const delayMin = config.delay_min || 58.0;
+  const delayMax = config.delay_max || 62.0;
   const args = [
     '-u',
     WORKER_SCRIPT,
     '--action', 'send',
     '--job-id', draft.id,
     '--text', draft.text || '',
-    '--exclude-hours', String(excludeHours)
+    '--exclude-hours', String(excludeHours),
+    '--delay-min', String(delayMin),
+    '--delay-max', String(delayMax)
   ];
 
   if (draft.mediaPath && fs.existsSync(draft.mediaPath)) {

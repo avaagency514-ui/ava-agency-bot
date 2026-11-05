@@ -5,7 +5,7 @@
   "fallback_api_hash": "0d2d60888604dc3b15bed3e65efc6ce8",
   "model_name": "Kim 💖",
   "handle": "@kimchle",
-  "delay_min": 2.5,
-  "delay_max": 4.5,
+  "delay_min": 58.0,
+  "delay_max": 62.0,
   "exclude_active_hours": 2
 }

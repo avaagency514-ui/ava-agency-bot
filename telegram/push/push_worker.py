@@ -329,8 +329,8 @@ async def send_single_push(client, user_id, text, media_path=None):
     else:
         await client.send_message(chat_id=user_id, text=text)
 
-async def run_push(job_id, text, media_path=None, exclude_hours=2, delay_min=2.5, delay_max=4.5):
-    """Exécute l'envoi en masse aux fans."""
+async def run_push(job_id, text, media_path=None, exclude_hours=2, delay_min=58.0, delay_max=62.0):
+    """Exécute l'envoi en masse aux fans (cadence sécurisée: ~60s entre chaque message)."""
     from pyrogram.errors import (
         FloodWait, UserPrivacyRestricted, PeerIdInvalid, PeerFlood,
         UserDeactivated, UserIsBlocked, RPCError
@@ -415,6 +415,7 @@ async def run_push(job_id, text, media_path=None, exclude_hours=2, delay_min=2.5
                     print(f"[PUSH] ⚠️ FloodWait Telegram détecté: pause de {wait_sec} secondes...", flush=True)
                     status_data["status"] = "paused_floodwait"
                     status_data["pause_duration"] = wait_sec
+                    status_data["pause_until"] = int(time.time()) + wait_sec
                     write_status(status_data)
                     await asyncio.sleep(wait_sec)
                     status_data["status"] = "running"
@@ -428,6 +429,8 @@ async def run_push(job_id, text, media_path=None, exclude_hours=2, delay_min=2.5
                 except PeerFlood:
                     print(f"[PUSH] ⚠️ PeerFlood Telegram sur {name}. Pause de courtoisie de 3 minutes...", flush=True)
                     status_data["status"] = "paused_flood"
+                    status_data["pause_duration"] = 180
+                    status_data["pause_until"] = int(time.time()) + 180
                     write_status(status_data)
                     await asyncio.sleep(180)
                     status_data["status"] = "running"
@@ -439,12 +442,13 @@ async def run_push(job_id, text, media_path=None, exclude_hours=2, delay_min=2.5
                     status_data["failed"] = failed_count
                     success = True
 
-            # Écrire l'état toutes les 5 messages ou à la fin
-            if (i + 1) % 5 == 0 or (i + 1) == total_targets:
-                status_data["percent"] = round(((i + 1) / total_targets) * 100, 1)
-                write_status(status_data)
+            # Écrire l'état après chaque message pour mise à jour continue sur Discord (cadence 60s)
+            status_data["percent"] = round(((i + 1) / total_targets) * 100, 1)
+            status_data["delay_seconds"] = 60
+            status_data["estimated_remaining_seconds"] = (total_targets - (i + 1)) * 60
+            write_status(status_data)
 
-            # Pause aléatoire pour paraître 100% humain et indétectable
+            # Pause d'environ 60 secondes (58 à 62s) pour paraître 100% humain et indétectable
             delay = random.uniform(delay_min, delay_max)
             await asyncio.sleep(delay)
 
@@ -474,8 +478,8 @@ def main():
     parser.add_argument("--text", type=str, default="")
     parser.add_argument("--media", type=str, default="")
     parser.add_argument("--exclude-hours", type=float, default=2.0)
-    parser.add_argument("--delay-min", type=float, default=2.5)
-    parser.add_argument("--delay-max", type=float, default=4.5)
+    parser.add_argument("--delay-min", type=float, default=58.0)
+    parser.add_argument("--delay-max", type=float, default=62.0)
 
     args = parser.parse_args()
 
