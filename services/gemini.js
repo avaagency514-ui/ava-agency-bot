@@ -17,16 +17,17 @@ function initGemini() {
 }
 
 const FREELLM_MODELS = [
-  'gemini-3.8-flash',
-  'gemini-3.5-flash',
   'gemini-3.5-flash-lite',
   'gemini-flash',
+  'gemini-3.5-flash',
+  'gemini-3.8-flash',
   'llama-3.3-70b-fp8-fast',
-  'qwq-32b',
+  'auto',
   'glm-4.7-flash',
   'mistral-small-3.1-24b',
   'llama-3.1-8b',
   'qwen3-30b-a3b-fp8',
+  'qwq-32b',
 ];
 
 const SDK_MODELS = [
@@ -55,9 +56,11 @@ async function generateViaFreeLLM(prompt) {
     try {
       const response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
+        signal: AbortSignal.timeout(6000),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
+          'Authorization': `Bearer ${apiKey}`,
+          'ngrok-skip-browser-warning': 'true'
         },
         body: JSON.stringify({
           model: modelName,
@@ -412,6 +415,32 @@ Texte brut à sublimer :
 ${rawText}
 """`;
 
+  // 1. Tenter d'abord via FreeLLM (si ngrok ou serveur local actif)
+  try {
+    const freeText = await generateViaFreeLLM(prompt);
+    if (freeText) {
+      try {
+        const parsed = JSON.parse(freeText);
+        if (parsed.content) {
+          return {
+            title: parsed.title || titleHint || 'COMMUNIQUÉ OFFICIEL',
+            badge: parsed.badge || 'COMMUNICATION INTERNE',
+            content: parsed.content
+          };
+        }
+      } catch (jsonErr) {
+        return {
+          title: titleHint || 'COMMUNIQUÉ OFFICIEL',
+          badge: 'COMMUNICATION INTERNE',
+          content: freeText
+        };
+      }
+    }
+  } catch (freeErr) {
+    console.warn(`ℹ️ FreeLLM non disponible pour l'annonce (${freeErr.message}), bascule sur Gemini direct...`);
+  }
+
+  // 2. Fallback direct via Google Generative AI SDK
   if (!genAI) initGemini();
   if (!genAI) throw new Error("Gemini API non configurée.");
 
