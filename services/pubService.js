@@ -158,6 +158,54 @@ function splitContentIntoChunks(content, maxChunk = 3800) {
 }
 
 /**
+ * Détecte si une URL pointe vers une vidéo
+ */
+function isVideoUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  const clean = url.split('?')[0].toLowerCase();
+  return clean.endsWith('.mp4') ||
+         clean.endsWith('.mov') ||
+         clean.endsWith('.webm') ||
+         clean.endsWith('.avi') ||
+         clean.endsWith('.mkv') ||
+         url.includes('youtube.com') ||
+         url.includes('youtu.be') ||
+         url.includes('loom.com') ||
+         url.includes('streamable.com') ||
+         url.includes('files.catbox.moe');
+}
+
+/**
+ * Extrait automatiquement une URL de média (vidéo ou image) depuis le texte ou les pièces jointes
+ */
+function extractMediaFromTextOrAttachments(text, attachments) {
+  // 1. Pièces jointes (images ou vidéos)
+  if (attachments && attachments.size > 0) {
+    for (const [, att] of attachments) {
+      if (att.name && att.name.endsWith('.txt')) continue;
+      if (att.contentType && (att.contentType.startsWith('image/') || att.contentType.startsWith('video/'))) {
+        return att.url;
+      }
+      if (/\.(mp4|mov|webm|avi|mkv|png|jpg|jpeg|gif|webp)$/i.test(att.name || '')) {
+        return att.url;
+      }
+    }
+  }
+
+  // 2. Recherche d'un lien vidéo direct dans le texte
+  if (text) {
+    const videoMatch = text.match(/https?:\/\/[^\s<>"']+\.(?:mp4|mov|webm|avi|mkv)[^\s<>"']*/i) ||
+                       text.match(/https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=[^\s<>"']+|youtu\.be\/[^\s<>"']+|loom\.com\/share\/[^\s<>"']+|streamable\.com\/[^\s<>"']+|files\.catbox\.moe\/[^\s<>"']+)/i);
+    if (videoMatch) return videoMatch[0];
+
+    const imageMatch = text.match(/https?:\/\/[^\s<>"']+\.(?:png|jpg|jpeg|gif|webp)[^\s<>"']*/i);
+    if (imageMatch) return imageMatch[0];
+  }
+
+  return null;
+}
+
+/**
  * Construit un tableau d'Embeds modernes pour l'annonce.
  * Si le contenu dépasse la limite Discord, il est automatiquement découpé en plusieurs embeds consécutifs sans perte.
  */
@@ -165,6 +213,9 @@ function buildAnnouncementEmbeds(draft) {
   const theme = PUB_THEMES[draft.theme] || PUB_THEMES.info;
   const activeContent = (draft.useAi && draft.aiContent) ? draft.aiContent : draft.rawContent;
   const chunks = splitContentIntoChunks(activeContent, 3800);
+
+  const media = draft.mediaUrl || draft.imageUrl;
+  const isVideo = isVideoUrl(media);
 
   const embeds = [];
 
@@ -180,8 +231,10 @@ function buildAnnouncementEmbeds(draft) {
         iconURL: draft.authorAvatar || undefined
       });
       embed.setTitle(`${theme.emoji} ${draft.title}`);
-      if (draft.imageUrl) {
-        embed.setImage(draft.imageUrl);
+
+      // Si c'est une image (et NON une vidéo), on la place dans embed.setImage
+      if (media && !isVideo) {
+        embed.setImage(media);
       }
     } else {
       embed.setTitle(`${theme.emoji} ${draft.title} — Suite (${index + 1}/${chunks.length})`);
@@ -190,6 +243,14 @@ function buildAnnouncementEmbeds(draft) {
     embed.setDescription(chunk);
 
     if (isLast) {
+      // Si une vidéo est attachée, on ajoute un champ officiel cliquable dans le dernier embed
+      if (media && isVideo) {
+        embed.addFields({
+          name: '🎥 Démonstration Vidéo Associée',
+          value: `▶️ [Visionner la vidéo en plein écran](${media})`
+        });
+      }
+
       const modeNotice = draft.useAi ? ' • ✨ Optimisé par IA' : '';
       embed.setFooter({
         text: `Publié par ${draft.authorTag}${modeNotice} • AVA Management System`
@@ -410,6 +471,16 @@ function buildPreviewComponents(draft) {
       .setStyle(ButtonStyle.Secondary)
   );
 
+  const media = draft.mediaUrl || draft.imageUrl;
+  if (media && isVideoUrl(media)) {
+    aiRow.addComponents(
+      new ButtonBuilder()
+        .setLabel('▶️ Voir la Vidéo')
+        .setStyle(ButtonStyle.Link)
+        .setURL(media)
+    );
+  }
+
   // Ligne 5 : Actions finales et Raccourcis Cibles directs
   const actionRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -441,18 +512,25 @@ function buildPreviewMessage(draft) {
   const mentionPreview = getMentionText(draft);
   const targetLabel = getTargetLabel(draft);
 
+  const media = draft.mediaUrl || draft.imageUrl;
+  const isVideo = isVideoUrl(media);
+
   const partsCount = embeds.length > 1 ? ` *(Message divisé en ${embeds.length} parties pour Discord)*` : '';
   const aiModeStatus = draft.useAi ? '✨ **Sublimé par l\'IA** (mise en page moderne)' : '📄 **Texte d\'origine** (brut)';
+  const videoNotice = (media && isVideo) ? `\n🎥 **Vidéo attachée :** ${media}` : '';
 
   const header = `### 👁️ APERÇU DE VOTRE ANNONCE AVA STUDIO\n` +
                  `📍 **Destination :** ${targetLabel}${partsCount}\n` +
                  `🔔 **Mention :** ${mentionPreview.trim() || '*Aucune (diffusion silencieuse)*'}\n` +
-                 `🎨 **Style :** ${aiModeStatus}\n` +
+                 `🎨 **Style :** ${aiModeStatus}${videoNotice}\n` +
                  `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
   // Discord autorise jusqu'à 10 embeds par message
+  // Si une vidéo est attachée, on inclut son lien directement dans le content pour déclencher le lecteur natif Discord
+  const contentBody = `${header}\n${mentionPreview}${media && isVideo ? `\n🎥 **Lecteur Vidéo :** ${media}` : ''}`.trim();
+
   return {
-    content: `${header}\n${mentionPreview}`,
+    content: contentBody,
     embeds: embeds.slice(0, 10),
     components: buildPreviewComponents(draft)
   };
@@ -530,12 +608,11 @@ async function handlePubMessageDrop(message, client) {
   if (message.channelId !== CHANNEL_PUB_ID) return;
 
   let rawContent = message.content ? message.content.trim() : '';
-  let imageUrl = null;
 
-  // Vérifier les pièces jointes (fichiers texte ou images)
+  // Vérifier les pièces jointes texte (.txt)
   if (message.attachments && message.attachments.size > 0) {
     for (const [, att] of message.attachments) {
-      if (att.name.endsWith('.txt')) {
+      if (att.name && att.name.endsWith('.txt')) {
         try {
           const res = await axios.get(att.url, { responseType: 'text' });
           if (res.data) {
@@ -544,13 +621,14 @@ async function handlePubMessageDrop(message, client) {
         } catch (e) {
           console.warn('⚠️ Échec lecture fichier txt joint:', e.message);
         }
-      } else if (att.contentType?.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(att.name)) {
-        imageUrl = att.url;
       }
     }
   }
 
-  if (!rawContent && !imageUrl) return;
+  // Extraire automatiquement le média (vidéo MP4/Loom/YouTube ou image)
+  let mediaUrl = extractMediaFromTextOrAttachments(rawContent, message.attachments);
+
+  if (!rawContent && !mediaUrl) return;
 
   // Supprimer le message d'origine du salon pour garder #pub propre
   try {
@@ -584,11 +662,14 @@ async function handlePubMessageDrop(message, client) {
     rawContent: rawContent,
     aiContent: aiResult ? aiResult.content : rawContent,
     useAi: Boolean(aiResult),
-    imageUrl,
+    mediaUrl,
+    imageUrl: (mediaUrl && !isVideoUrl(mediaUrl)) ? mediaUrl : null,
     theme: 'info',
+    targetMode: 'preset',
     channelIds: [CHANNEL_ANNONCE_GENERAL_ID],
     targetPreset: 'annonce_general',
     customChannelIds: [],
+    targetRoleId: null,
     mentionType: 'none',
     mentionRoleId: null,
     createdAt: Date.now()
@@ -890,7 +971,10 @@ async function handlePubInteraction(interaction, client) {
     const title = interaction.fields.getTextInputValue('pub_input_title');
     const badge = interaction.fields.getTextInputValue('pub_input_badge') || 'COMMUNICATION INTERNE';
     const rawContent = interaction.fields.getTextInputValue('pub_input_content');
-    const imageUrl = interaction.fields.getTextInputValue('pub_input_image') || null;
+    let mediaUrl = interaction.fields.getTextInputValue('pub_input_image') || null;
+    if (!mediaUrl) {
+      mediaUrl = extractMediaFromTextOrAttachments(rawContent, null);
+    }
 
     let aiResult = null;
     try {
@@ -910,11 +994,14 @@ async function handlePubInteraction(interaction, client) {
       rawContent,
       aiContent: aiResult ? aiResult.content : rawContent,
       useAi: Boolean(aiResult),
-      imageUrl,
+      mediaUrl,
+      imageUrl: (mediaUrl && !isVideoUrl(mediaUrl)) ? mediaUrl : null,
       theme: 'info',
+      targetMode: 'preset',
       channelIds: [CHANNEL_ANNONCE_GENERAL_ID],
       targetPreset: 'annonce_general',
       customChannelIds: [],
+      targetRoleId: null,
       mentionType: 'none',
       mentionRoleId: null,
       createdAt: Date.now()
@@ -1372,8 +1459,8 @@ async function handlePubInteraction(interaction, client) {
 
     const imageInput = new TextInputBuilder()
       .setCustomId('pub_input_image')
-      .setLabel('URL de l\'image (Optionnel)')
-      .setValue(draft.imageUrl || '')
+      .setLabel('URL du Média (Image ou Vidéo MP4/Loom)')
+      .setValue(draft.mediaUrl || draft.imageUrl || '')
       .setStyle(TextInputStyle.Short)
       .setRequired(false);
 
@@ -1399,7 +1486,13 @@ async function handlePubInteraction(interaction, client) {
     draft.rawContent = newContent;
     draft.aiContent = newContent;
     draft.useAi = false; // Mode manuel
-    draft.imageUrl = interaction.fields.getTextInputValue('pub_input_image') || null;
+
+    let mediaUrl = interaction.fields.getTextInputValue('pub_input_image') || null;
+    if (!mediaUrl) {
+      mediaUrl = extractMediaFromTextOrAttachments(newContent, null);
+    }
+    draft.mediaUrl = mediaUrl;
+    draft.imageUrl = (mediaUrl && !isVideoUrl(mediaUrl)) ? mediaUrl : null;
 
     const preview = buildPreviewMessage(draft);
     return interaction.update(preview);
@@ -1428,6 +1521,9 @@ async function handlePubInteraction(interaction, client) {
     const successList = [];
     const errorList = [];
 
+    const media = draft.mediaUrl || draft.imageUrl;
+    const isVideo = isVideoUrl(media);
+
     for (const channel of targetChannels) {
       try {
         // Envoi avec découpage en lots de 10 embeds maximum par message Discord
@@ -1435,9 +1531,26 @@ async function handlePubInteraction(interaction, client) {
           const batch = embeds.slice(i, i + 10);
           const isFirstBatch = i === 0;
 
+          let msgContent = '';
+          if (isFirstBatch && mentionText) msgContent += mentionText.trim() + '\n';
+          if (isFirstBatch && media && isVideo) msgContent += `🎥 **Démonstration Vidéo :** ${media}\n`;
+
+          const components = [];
+          if (isFirstBatch && media && isVideo) {
+            components.push(
+              new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                  .setLabel('▶️ Regarder la Vidéo')
+                  .setStyle(ButtonStyle.Link)
+                  .setURL(media)
+              )
+            );
+          }
+
           await channel.send({
-            content: (isFirstBatch && mentionText) ? mentionText.trim() : undefined,
-            embeds: batch
+            content: msgContent.trim() || undefined,
+            embeds: batch,
+            components: components.length > 0 ? components : undefined
           });
         }
         successList.push(`<#${channel.id}>`);
