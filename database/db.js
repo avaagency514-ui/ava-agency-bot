@@ -81,6 +81,16 @@ function initDatabase() {
       reference_type  TEXT,
       sent_at         TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS scraped_reels (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_key      TEXT UNIQUE NOT NULL,
+      extracted_text  TEXT,
+      author_id       TEXT,
+      author_tag      TEXT,
+      channel_id      TEXT,
+      created_at      TEXT DEFAULT (datetime('now'))
+    );
   `);
 
   try {
@@ -155,11 +165,23 @@ function getAlertesQueries() {
   return _alertesQ;
 }
 
+let _reelQ = null;
+function getReelQueries() {
+  if (_reelQ) return _reelQ;
+  _reelQ = {
+    save:      db.prepare(`INSERT OR REPLACE INTO scraped_reels (source_key, extracted_text, author_id, author_tag, channel_id) VALUES (:source_key, :extracted_text, :author_id, :author_tag, :channel_id)`),
+    getByKey:  db.prepare(`SELECT * FROM scraped_reels WHERE source_key = ?`),
+    getRecent: db.prepare(`SELECT * FROM scraped_reels ORDER BY id DESC LIMIT 50`),
+  };
+  return _reelQ;
+}
+
 // Proxy pour accéder aux queries de façon transparente (get sur l'objet appelle le lazy getter)
-const vaQueries      = new Proxy({}, { get: (_, key) => getVaQueries()[key] });
-const igQueries      = new Proxy({}, { get: (_, key) => getIgQueries()[key] });
+const vaQueries       = new Proxy({}, { get: (_, key) => getVaQueries()[key] });
+const igQueries       = new Proxy({}, { get: (_, key) => getIgQueries()[key] });
 const activiteQueries = new Proxy({}, { get: (_, key) => getActiviteQueries()[key] });
 const alertesQueries  = new Proxy({}, { get: (_, key) => getAlertesQueries()[key] });
+const reelQueries     = new Proxy({}, { get: (_, key) => getReelQueries()[key] });
 
 module.exports = {
   db,
@@ -169,4 +191,5 @@ module.exports = {
   igQueries,
   activiteQueries,
   alertesQueries,
+  reelQueries,
 };

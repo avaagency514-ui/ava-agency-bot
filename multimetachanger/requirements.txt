@@ -18,3 +18,4 @@ setuptools
 urllib3
 Werkzeug
 pyrogram
+yt-dlp

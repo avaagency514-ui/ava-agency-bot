@@ -14,6 +14,10 @@ const {
   readAutoPushConfig,
   downloadFile
 } = require('../services/pushService');
+const {
+  CHANNEL_REEL_SCRAPPER_ID,
+  processReelScrapperMessage
+} = require('../services/reelExtractor');
 
 module.exports = {
   name: Events.MessageCreate,
@@ -22,6 +26,11 @@ module.exports = {
   async execute(message, client) {
     // Ignorer les bots
     if (message.author.bot) return;
+
+    // Détection des Reels dans le salon #reel-scrapper
+    if (message.channelId === CHANNEL_REEL_SCRAPPER_ID) {
+      return await processReelScrapperMessage(message, client);
+    }
 
     // Vérifier si le message est posté dans le salon #push
     if (message.channelId !== CHANNEL_PUSH_ID) return;

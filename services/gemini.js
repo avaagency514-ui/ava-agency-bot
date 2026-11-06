@@ -305,4 +305,83 @@ CRITICAL RULES:
   throw new Error(`La génération Twitter a échoué: ${lastError?.message || 'Erreur inconnue'}`);
 }
 
-module.exports = { initGemini, generateUniqueText, translateToEnglish, generateTwitterText };
+/**
+ * Analyse une série d'images (frames) d'un Reel Instagram pour extraire l'accroche / texte incrusté
+ * @param {Array<string>} framePaths - Chemins des images JPEG
+ * @returns {Promise<string|null>} - Texte extrait ou null si aucun texte
+ */
+async function extractHookFromFramePaths(framePaths) {
+  const prompt = `Tu es un assistant expert en transcription OCR pour des vidéos courtes (Instagram Reels, TikTok).
+Ton unique mission est d'extraire fidèlement le texte principal (le hook / l'accroche / la légende incrustée) qui apparaît à l'écran sur cette vidéo.
+
+RÈGLES IMPORTANTES :
+1. Retranscris EXACTEMENT le texte incrusté mot pour mot, en conservant les majuscules, accents, ponctuation et emojis originaux.
+2. Ignore totalement les boutons et icônes d'interface d'Instagram (le pseudo de la modèle, le bouton s'abonner, la barre de recherche, le compteur de likes, la musique en bas, etc.).
+3. Ne transcris QUE la phrase ou question ou texte affiché au milieu/haut/bas de la vidéo qui s'adresse au spectateur (ex: "Pov : Je suis du signe...", "Quand t'es pas sur la même longueur d'onde 😂", "Ta daronne préf 🫦").
+4. Si le texte est écrit sur plusieurs lignes, conserve les retours à la ligne.
+5. Réponds UNIQUEMENT avec le texte extrait. Ne mets PAS de guillemets autour, AUCUN commentaire introductif (ne dis pas "Voici le texte :"), AUCUN bloc de code markdown.
+6. Si absolument aucun texte ou phrase n'est incrusté dans la vidéo, réponds exactement : AUCUN_TEXTE`;
+
+  const parts = [{ text: prompt }];
+
+  for (const imgPath of framePaths) {
+    try {
+      if (fs.existsSync(imgPath)) {
+        const imgBuffer = fs.readFileSync(imgPath);
+        parts.push({
+          inlineData: {
+            mimeType: 'image/jpeg',
+            data: imgBuffer.toString('base64')
+          }
+        });
+      }
+    } catch (e) {
+      console.warn(`⚠️ Impossible de charger la frame ${imgPath}:`, e.message);
+    }
+  }
+
+  if (parts.length <= 1) {
+    throw new Error("Aucune image valide fournie pour l'analyse.");
+  }
+
+  if (!genAI) initGemini();
+  if (!genAI) throw new Error("Gemini API non configurée.");
+
+  // Modèles supportant les images / vision
+  const visionModels = ['gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-flash-latest'];
+  let lastError = null;
+
+  for (const modelName of visionModels) {
+    let retries = 2;
+    while (retries >= 0) {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent(parts);
+        const response = await result.response;
+        let text = response.text().trim();
+
+        text = text.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '').trim();
+        text = text.replace(/^["']|["']$/g, '').trim();
+
+        if (text === 'AUCUN_TEXTE' || text.toUpperCase() === 'AUCUN_TEXTE' || text === 'AUCUN TEXTE') {
+          return null;
+        }
+
+        return text;
+      } catch (err) {
+        lastError = err;
+        console.warn(`⚠️ Modèle Vision direct "${modelName}" error (${err.message})...`);
+        if (err.message && err.message.includes('503') && retries > 0) {
+          await sleep(2000);
+          retries--;
+        } else {
+          break;
+        }
+      }
+    }
+  }
+
+  throw new Error(`L'analyse OCR a échoué via tous les modèles: ${lastError?.message || 'Erreur inconnue'}`);
+}
+
+module.exports = { initGemini, generateUniqueText, translateToEnglish, generateTwitterText, extractHookFromFramePaths };
