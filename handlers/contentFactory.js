@@ -399,11 +399,13 @@ async function handleFollowRequest(interaction, type, meta, qty = 5) {
 const CAPTION_REEL_CHANNEL_ID = process.env.CHANNEL_CAPTION_REEL_ID || '1565272928608583760';
 
 /**
- * Wraps a text so each line is at most `maxChars` characters.
- * Returns a string with \n separators suitable for ffmpeg drawtext.
+ * Découpe le texte en lignes de 22-24 caractères maximum
+ * afin d'éviter tout débordement sur les vidéos verticales (format 9:16).
+ * Utilise \N (saut de ligne ASS) pour que chaque ligne soit centrée individuellement.
  */
-function wrapTextForVideo(text, maxChars = 38) {
-  const words = text.split(' ');
+function wrapTextForAss(text, maxChars = 24) {
+  const clean = text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const words = clean.split(' ').filter(Boolean);
   const lines = [];
   let current = '';
   for (const word of words) {
@@ -415,17 +417,7 @@ function wrapTextForVideo(text, maxChars = 38) {
     }
   }
   if (current) lines.push(current);
-  return lines.join('\n');
-}
-
-/**
- * Escape single-quotes and special chars for ffmpeg drawtext
- */
-function escapeFfmpegText(str) {
-  return str
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'")
-    .replace(/:/g, '\\:');
+  return lines.join('\\N');
 }
 
 /**
@@ -438,51 +430,60 @@ function getFfmpegPath() {
 }
 
 /**
- * Résout une police disponible (Anton style gras / style TikTok)
+ * Génère un fichier .ass avec le style exact de la capture :
+ * - Texte blanc gras
+ * - Contour noir épais (5.5px)
+ * - Centré individuellement pour chaque ligne (Alignment: 2)
+ * - Positionné dans le bas / tiers inférieur (MarginV: 320)
+ * - Échelle adaptative (PlayRes 1080x1920)
  */
-function getFontPath() {
-  const candidates = [
-    path.join(__dirname, '../assets/fonts/Anton-Regular.ttf'),
-    path.join(__dirname, '../assets/fonts/NotoSans-Bold.ttf'),
-    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-    '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf',
-    '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
-  ];
-  for (const c of candidates) {
-    if (fs.existsSync(c)) return c;
-  }
-  return null; // ffmpeg utilisera la police par défaut
+function createAssSubtitleFile(assPath, captionText) {
+  const wrapped = wrapTextForAss(captionText, 24);
+
+  const assContent = `[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,56,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,5.5,0,2,80,80,320,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:10:00.00,Default,,0,0,0,,${wrapped}
+`;
+
+  fs.writeFileSync(assPath, assContent, 'utf8');
 }
 
 /**
- * Injecte une caption dans une vidéo via ffmpeg (style TikTok/Instagram caption)
+ * Injecte une caption dans une vidéo via ffmpeg avec sous-titres ASS (style TikTok caption)
  * @param {string} inputPath - Chemin de la vidéo source
  * @param {string} outputPath - Chemin de sortie
- * @param {string} captionText - Texte de la caption (peut contenir des \n)
+ * @param {string} captionText - Texte de la caption
+ * @param {string} workDir - Dossier de travail
  * @returns {Promise<void>}
  */
-function injectCaptionIntoVideo(inputPath, outputPath, captionText) {
+function injectCaptionIntoVideo(inputPath, outputPath, captionText, workDir) {
   return new Promise((resolve, reject) => {
     const ffmpegPath = getFfmpegPath();
-    const fontPath = getFontPath();
+    const assPath = path.join(workDir, `caption_${Date.now()}.ass`);
 
-    // Wrapping à ~36 chars par ligne
-    const wrapped = wrapTextForVideo(captionText, 36);
-    const escaped = escapeFfmpegText(wrapped);
-
-    // Style : blanc gras, contour noir épais, centré, tiers inférieur (y=h*0.68)
-    let drawtext;
-    if (fontPath) {
-      const escapedFont = fontPath.replace(/\\/g, '/').replace(/:/g, '\\:');
-      drawtext = `drawtext=fontfile='${escapedFont}':text='${escaped}':fontcolor=white:fontsize=52:borderw=5:bordercolor=black:x=(w-text_w)/2:y=(h*0.68-text_h/2):line_spacing=8:fix_bounds=true`;
-    } else {
-      drawtext = `drawtext=text='${escaped}':fontcolor=white:fontsize=52:borderw=5:bordercolor=black:x=(w-text_w)/2:y=(h*0.68-text_h/2):line_spacing=8:fix_bounds=true`;
+    try {
+      createAssSubtitleFile(assPath, captionText);
+    } catch (e) {
+      return reject(new Error(`Impossible de créer le fichier sous-titres : ${e.message}`));
     }
+
+    const escapedAssPath = assPath.replace(/\\/g, '/').replace(/:/g, '\\:');
+    const filter = `ass='${escapedAssPath}'`;
 
     const args = [
       '-y',
       '-i', inputPath,
-      '-vf', drawtext,
+      '-vf', filter,
       '-c:v', 'libx264',
       '-crf', '23',
       '-preset', 'fast',
@@ -491,9 +492,12 @@ function injectCaptionIntoVideo(inputPath, outputPath, captionText) {
       outputPath
     ];
 
-    console.log(`🎬 ffmpeg drawtext : ${drawtext.substring(0, 120)}...`);
+    console.log(`🎬 ffmpeg libass render : ${captionText.slice(0, 60)}...`);
 
     execFile(ffmpegPath, args, { timeout: 120000 }, (err, stdout, stderr) => {
+      // Nettoyage immédiat du fichier ASS
+      try { if (fs.existsSync(assPath)) fs.unlinkSync(assPath); } catch (_) {}
+
       if (err) {
         console.error('❌ ffmpeg stderr:', stderr?.slice(-500));
         return reject(new Error(`ffmpeg échoué : ${err.message}`));
@@ -564,7 +568,7 @@ async function handleGenerateReel(interaction) {
 
   // 3. Injecter la caption dans la vidéo
   try {
-    await injectCaptionIntoVideo(inputPath, outputPath, caption);
+    await injectCaptionIntoVideo(inputPath, outputPath, caption, workDir);
   } catch (err) {
     if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
     return interaction.editReply({

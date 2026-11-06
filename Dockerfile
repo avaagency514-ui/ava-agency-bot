@@ -3,6 +3,8 @@ FROM python:3.10-slim-bookworm
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     ffmpeg \
+    fonts-dejavu-core \
+    fonts-liberation \
     curl \
     gnupg \
     && rm -rf /var/lib/apt/lists/*
@@ -24,7 +26,7 @@ COPY package*.json ./
 RUN npm install
 
 # Cache bust - force rebuild of code layer
-ARG CACHEBUST=25
+ARG CACHEBUST=26
 # Copy all source code
 COPY . .
 
