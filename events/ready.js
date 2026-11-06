@@ -4,6 +4,7 @@ const { initPenaltyTables, setupPenaltyPanelChannel } = require('../services/pen
 const { initComptaTables, setupComptaChannel, initMonthlyRecurringExpenses } = require('../services/comptaService');
 const { setupPushPanelChannel } = require('../services/pushService');
 const { setupTwitterContentFactory } = require('../handlers/twitterContentFactory');
+const { renameAllExistingTickets } = require('../services/ticketRenamer');
 
 module.exports = {
   name: Events.ClientReady,
@@ -57,6 +58,18 @@ module.exports = {
       await setupTwitterContentFactory(client);
     } catch (err) {
       console.error('❌ Erreur setupTwitterContentFactory:', err);
+    }
+
+    // Renommer automatiquement tous les anciens tickets existants au nom de leur candidat
+    try {
+      const guild = client.guilds.cache.get(process.env.DISCORD_GUILD_ID) || client.guilds.cache.first();
+      if (guild) {
+        renameAllExistingTickets(guild, client).catch(err => {
+          console.error('❌ Erreur renameAllExistingTickets:', err);
+        });
+      }
+    } catch (err) {
+      console.error('❌ Erreur lancement renommage des tickets existants:', err);
     }
   },
 };

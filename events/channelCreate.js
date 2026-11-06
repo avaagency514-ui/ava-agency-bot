@@ -1,5 +1,6 @@
 const { Events, ChannelType, OverwriteType } = require('discord.js');
 const { sendTicketWelcome } = require('../handlers/ticketHandler');
+const { findCandidateInTicket, renameTicketToCandidate } = require('../services/ticketRenamer');
 
 // Protection anti-doublon en mémoire (par channelId)
 const processedTickets = new Set();
@@ -25,11 +26,18 @@ module.exports = {
 
       console.log(`🎟️ Nouveau salon ticket détecté : #${channel.name} (${channel.id})`);
 
-      // Attendre 2 secondes que Ticket Tool applique ses permissions et poste son message
+      // Attendre 2.5 secondes que Ticket Tool applique ses permissions et poste son message
       setTimeout(async () => {
         try {
           const freshChannel = await channel.guild.channels.fetch(channel.id).catch(() => null);
           if (!freshChannel) return;
+
+          let candidateId = await findCandidateInTicket(freshChannel, client);
+
+          // Si le candidat est identifié, renommer immédiatement le ticket à son nom
+          if (candidateId) {
+            await renameTicketToCandidate(freshChannel, candidateId, channel.guild);
+          }
 
           // Vérifier si un message de bienvenue AVA n'est pas déjà présent
           const messages = await freshChannel.messages.fetch({ limit: 10 }).catch(() => null);
@@ -39,36 +47,26 @@ module.exports = {
             return;
           }
 
-          let candidateId = 'any';
+          console.log(`🎯 Envoi unique de l'onboarding pour #${freshChannel.name} (Candidat: ${candidateId || 'any'})`);
+          await sendTicketWelcome(freshChannel, candidateId || 'any');
 
-          // 1. Chercher la mention dans le message de Ticket Tool (<@USER_ID>)
-          if (messages) {
-            for (const msg of messages.values()) {
-              const match = msg.content.match(/<@!?([0-9]{17,20})>/);
-              if (match && match[1] !== client.user.id && match[1] !== msg.author.id) {
-                candidateId = match[1];
-                break;
+          // Deuxième tentative de renommage 4 secondes plus tard si Ticket Tool a mis du temps
+          if (!candidateId) {
+            setTimeout(async () => {
+              const lateCh = await channel.guild.channels.fetch(channel.id).catch(() => null);
+              if (lateCh) {
+                const lateCandidateId = await findCandidateInTicket(lateCh, client);
+                if (lateCandidateId) {
+                  await renameTicketToCandidate(lateCh, lateCandidateId, channel.guild);
+                }
               }
-            }
+            }, 4000);
           }
-
-          // 2. Si non trouvé, regarder les permissions membres
-          if (candidateId === 'any') {
-            for (const [id, overwrite] of freshChannel.permissionOverwrites.cache) {
-              if (overwrite.type === OverwriteType.Member && id !== client.user.id && id !== '557628352828014614') {
-                candidateId = id;
-                break;
-              }
-            }
-          }
-
-          console.log(`🎯 Envoi unique de l'onboarding pour #${freshChannel.name} (Candidat: ${candidateId})`);
-          await sendTicketWelcome(freshChannel, candidateId);
 
         } catch (innerErr) {
           console.error('❌ Erreur initialisation ticket après délai :', innerErr);
         }
-      }, 2000);
+      }, 2500);
 
     } catch (err) {
       console.error('❌ Erreur event channelCreate ticket :', err);

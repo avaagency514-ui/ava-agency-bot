@@ -34,6 +34,7 @@ populate*.js
 list_*.js
 force-alter.js
 make_icon.py
+telegram/push/*.json
 *.log
 __pycache__/
 *.pyc

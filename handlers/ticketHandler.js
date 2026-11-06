@@ -383,6 +383,14 @@ async function handleTicketButton(interaction, client) {
     candidateId = interaction.user.id;
   }
 
+  // Renommage automatique de sécurité au nom du candidat si le salon est encore générique (ticket-0001...)
+  try {
+    if (interaction.channel && candidateId && candidateId !== 'any') {
+      const { renameTicketToCandidate } = require('../services/ticketRenamer');
+      renameTicketToCandidate(interaction.channel, candidateId, interaction.guild).catch(() => {});
+    }
+  } catch (e) {}
+
   // ── Cas 1 : Clic sur "Je suis un Chatter" ──────────────────────
   if (action === 'ticket_type_chatter') {
     // Vérification que c'est le candidat ou le staff
