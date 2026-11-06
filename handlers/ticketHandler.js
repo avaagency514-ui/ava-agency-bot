@@ -343,6 +343,34 @@ function buildChatterShiftButtons(candidateId) {
   );
 }
 
+// ─── 3c. Offre et Rémunération pour les Assistants Virtuels (VA) ──
+function buildVaOfferEmbed(candidateId, pole = null) {
+  const poleName = pole ? pole.name : 'Assistants Virtuels (VA)';
+  const color = pole ? pole.color : 0xe67e22;
+
+  return new EmbedBuilder()
+    .setTitle(`💼 CONDITIONS & RÉMUNÉRATION — ${poleName.toUpperCase()}`)
+    .setColor(color)
+    .setDescription(
+      `Bonjour <@${candidateId}> !\n` +
+      `Voici l'ensemble des conditions et le barème de rémunération officiel pour les **${poleName}** chez AVA Agency :\n\n` +
+      `💼 **1. ASSISTANTS VIRTUELS (VA)**\n\n` +
+      `💵 **Tarif de base :**\n` +
+      `• **1$** pour **3 subs éligibles**.\n\n` +
+      `🎯 **Objectif minimum de paiement :**\n` +
+      `• **30 subs valides** requis pour débloquer un virement (cycle de règlement **toutes les 2 semaines**).\n\n` +
+      `🔄 **Conservation des points :**\n` +
+      `• Si le seuil des 30 subs n'est pas atteint à la fin des 2 semaines, **vos points ne sont jamais perdus** et restent cumulés pour la session suivante.\n\n` +
+      `🏆 **Prime d'excellence :**\n` +
+      `• Bonus de **+10$** dès **500 subs valides** atteints dans le mois.\n\n` +
+      `🌍 **Pays éligibles :**\n` +
+      `• Subs issus de zones qualifiées (**France, Europe, USA**, etc.).\n\n` +
+      `👉 *Un manager va prendre en charge votre ticket d'ici peu pour échanger avec vous et finaliser votre intégration.*`
+    )
+    .setFooter({ text: 'AVA Agency • Rémunération Officielle VA' })
+    .setTimestamp();
+}
+
 // ─── 4. Gestionnaire d'interactions (Boutons) ─────────────────────
 async function handleTicketButton(interaction, client) {
   const id = interaction.customId;
@@ -424,7 +452,16 @@ async function handleTicketButton(interaction, client) {
 
     const embedVA = new EmbedBuilder()
       .setTitle('💎 Sélection de votre spécialité VA')
-      .setDescription(`Bonjour <@${candidateId}> !\n\nVeuillez choisir ci-dessous le **pôle pour lequel vous postulez :**`)
+      .setDescription(
+        `Bonjour <@${candidateId}> !\n\n` +
+        `💼 **Barème de Rémunération AVA Agency :**\n` +
+        `• **Tarif de base :** 1$ pour 3 subs éligibles.\n` +
+        `• **Objectif minimum :** 30 subs valides requis pour débloquer un virement (toutes les 2 semaines).\n` +
+        `• **Conservation des points :** Vos points ne sont jamais perdus et restent cumulés pour la session suivante.\n` +
+        `• **Prime d'excellence :** Bonus de +10$ dès 500 subs valides atteints dans le mois.\n` +
+        `• **Pays éligibles :** Subs issus de zones qualifiées (France, Europe, USA, etc.).\n\n` +
+        `👉 Veuillez choisir ci-dessous le **pôle pour lequel vous postulez :**`
+      )
       .setColor(0xe67e22)
       .addFields(
         { name: '🐦 VA Twitter', value: 'Publication & engagement Twitter / X', inline: true },
@@ -503,6 +540,13 @@ async function handleTicketButton(interaction, client) {
     await interaction.editReply({
       embeds: [confirmationEmbed],
       components: []
+    });
+
+    // Envoyer directement l'offre de rémunération au candidat
+    const vaOfferEmbed = buildVaOfferEmbed(candidateId, pole);
+    await interaction.channel.send({
+      content: `👋 <@${candidateId}> Voici les conditions et la rémunération officielle pour le poste **${pole.name}** :`,
+      embeds: [vaOfferEmbed]
     });
 
     // Ping du manager de pôle + envoi du panneau d'attribution
