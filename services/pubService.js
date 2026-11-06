@@ -742,9 +742,10 @@ async function handlePubMessageDrop(message, client) {
 
   let aiResult = null;
   try {
-    aiResult = await formatAnnouncementWithAI(rawContent, titleHint);
+    const aiTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('IA timeout 12s')), 12000));
+    aiResult = await Promise.race([formatAnnouncementWithAI(rawContent, titleHint), aiTimeout]);
   } catch (aiErr) {
-    console.warn('⚠️ Échec optimisation IA annonce:', aiErr.message);
+    console.warn('⚠️ Échec/timeout optimisation IA annonce:', aiErr.message);
   }
 
   const draftId = `pub_${Date.now()}_${message.author.id}`;
@@ -1093,9 +1094,10 @@ async function handlePubInteraction(interaction, client) {
 
     let aiResult = null;
     try {
-      aiResult = await formatAnnouncementWithAI(rawContent, title);
+      const aiTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('IA timeout 12s')), 12000));
+      aiResult = await Promise.race([formatAnnouncementWithAI(rawContent, title), aiTimeout]);
     } catch (aiErr) {
-      console.warn('⚠️ Échec optimisation IA modale:', aiErr.message);
+      console.warn('⚠️ Échec/timeout optimisation IA modale:', aiErr.message);
     }
 
     const draftId = `pub_${Date.now()}_${interaction.user.id}`;
@@ -1177,7 +1179,8 @@ async function handlePubInteraction(interaction, client) {
     await interaction.deferUpdate();
 
     try {
-      const aiResult = await formatAnnouncementWithAI(draft.rawContent, draft.title);
+      const aiTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('IA timeout 12s')), 12000));
+      const aiResult = await Promise.race([formatAnnouncementWithAI(draft.rawContent, draft.title), aiTimeout]);
       if (aiResult) {
         draft.title = aiResult.title;
         draft.badge = aiResult.badge;
