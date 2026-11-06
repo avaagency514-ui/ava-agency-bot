@@ -136,7 +136,7 @@ async function processSingleMediaItem({ mediaUrl, isAttachment, attachmentName, 
   const mediaKey = normalizeMediaKey(isAttachment ? (attachmentName || mediaUrl) : mediaUrl);
 
   // 1. Vérification anti-doublon en base de données
-  const existing = reelQueries.getByKey(mediaKey);
+  const existing = reelQueries.getByKey.get(mediaKey);
   if (existing) {
     console.log(`ℹ️ Média déjà traité en base pour la clé: ${mediaKey}`);
     return {
@@ -198,7 +198,7 @@ async function processSingleMediaItem({ mediaUrl, isAttachment, attachmentName, 
 
     // 5. Sauvegarde en base de données
     try {
-      reelQueries.save({
+      reelQueries.save.run({
         source_key: mediaKey,
         extracted_text: cleanHook,
         author_id: author?.id || null,
@@ -312,10 +312,12 @@ async function processReelScrapperMessage(message, client) {
     const hasError = results.some(r => r.status === 'error');
     const onlyNoText = results.every(r => r.status === 'no_text');
 
-    // Nettoyer la réaction sablier
+    // Nettoyer les réactions précédentes
     try {
-      const userReactions = message.reactions.resolve('⏳');
-      if (userReactions) await userReactions.users.remove(client.user.id);
+      const waitReaction = message.reactions.resolve('⏳');
+      if (waitReaction) await waitReaction.users.remove(client.user.id);
+      const errorReaction = message.reactions.resolve('❌');
+      if (errorReaction && hasSuccess) await errorReaction.users.remove(client.user.id);
     } catch (e) {}
 
     if (hasSuccess) {
@@ -371,9 +373,9 @@ async function catchupUnprocessedReels(client) {
       const hasVideo = msg.attachments.some(att => (att.contentType && att.contentType.startsWith('video/')) || /\.(mp4|mov|webm)$/i.test(att.name || ''));
       if (!hasUrl && !hasVideo) continue;
 
-      // Vérifier si le message a déjà été traité (réaction bot ✅ ou ⚠️ ou ❌)
+      // Vérifier si le message a déjà été traité avec succès (réaction bot ✅)
       const hasHandledReaction = msg.reactions.cache.some(r =>
-        (r.emoji.name === '✅' || r.emoji.name === '⚠️' || r.emoji.name === '❌') &&
+        r.emoji.name === '✅' &&
         (r.users.cache.has(client.user.id) || r.me || r.count > 0)
       );
       if (hasHandledReaction) continue;
