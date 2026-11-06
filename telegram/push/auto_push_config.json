@@ -2,8 +2,8 @@
   "enabled": true,
   "randomize_time": true,
   "jitter_minutes": 10,
-  "exclude_active_hours": 2.0,
-  "auto_delete_hours": 0.0,
+  "exclude_active_hours": 2,
+  "auto_delete_hours": 0,
   "slots": [
     {
       "id": "slot_1",
@@ -15,7 +15,7 @@
       "media_name": null,
       "media_type": null,
       "enabled": true,
-      "last_run": null
+      "last_run": "2026-11-06"
     },
     {
       "id": "slot_2",
@@ -27,7 +27,7 @@
       "media_name": null,
       "media_type": null,
       "enabled": true,
-      "last_run": null
+      "last_run": "2026-11-05"
     },
     {
       "id": "slot_3",
@@ -39,7 +39,7 @@
       "media_name": null,
       "media_type": null,
       "enabled": true,
-      "last_run": null
+      "last_run": "2026-11-05"
     }
   ]
 }
