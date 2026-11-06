@@ -8,6 +8,7 @@ const { execFile } = require('child_process');
 
 const CONTENT_LABELS = {
   reels:        { emoji: '🎬', label: 'Reels', color: 0x00ff88 },
+  reelscaption: { emoji: '🎬', label: 'Reels avec Caption', color: 0x9b59b6 },
   post:         { emoji: '🖼️', label: 'Post', color: 0x00aaff },
   pp:           { emoji: '👤', label: 'Photo de Profil', color: 0x9b59b6 },
   cta:          { emoji: '🔗', label: 'CTA', color: 0xf39c12 },
@@ -221,6 +222,11 @@ async function handleContentSelect(interaction) {
     return handleFollowRequest(interaction, type, meta, qty);
   }
 
+  // 🎬 Reels avec Caption
+  if (type === 'reelscaption') {
+    return handleReelsCaptionSelect(interaction, profileId, qty, meta);
+  }
+
   let stockRestant = 0;
   const processedFiles = [];
   
@@ -399,6 +405,51 @@ async function handleFollowRequest(interaction, type, meta, qty = 5) {
 const CAPTION_REEL_CHANNEL_ID = process.env.CHANNEL_CAPTION_REEL_ID || '1565272928608583760';
 
 /**
+ * Récupère un pool de captions depuis #caption-reel, les mélange aléatoirement
+ * et renvoie `count` captions distinctes pour garantir que chaque vidéo a sa propre caption.
+ */
+async function getCaptionsPool(client, count = 1) {
+  const channel = await client.channels.fetch(CAPTION_REEL_CHANNEL_ID).catch(() => null);
+  if (!channel) throw new Error(`Salon #caption-reel (${CAPTION_REEL_CHANNEL_ID}) introuvable.`);
+
+  // Récupérer jusqu'à 100 messages récents (incluant ceux du bot !)
+  const messages = await channel.messages.fetch({ limit: 100 });
+  const pool = [];
+
+  messages.forEach(m => {
+    const text = m.content?.trim();
+    if (
+      text &&
+      text.length >= 8 &&
+      !text.startsWith('http') &&
+      !text.startsWith('❌') &&
+      !text.startsWith('🔍') &&
+      !text.startsWith('✅') &&
+      !text.includes('===CAPTION===')
+    ) {
+      pool.push(text);
+    }
+  });
+
+  if (pool.length === 0) {
+    throw new Error('Aucune caption exploitable trouvée dans #caption-reel.');
+  }
+
+  // Mélange aléatoire (Fisher-Yates shuffle) pour varier à chaque clic
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+
+  // Sélection de `count` captions uniques
+  const selected = [];
+  for (let i = 0; i < count; i++) {
+    selected.push(pool[i % pool.length]);
+  }
+  return selected;
+}
+
+/**
  * Découpe le texte en lignes de 22-24 caractères maximum
  * afin d'éviter tout débordement sur les vidéos verticales (format 9:16).
  * Utilise \N (saut de ligne ASS) pour que chaque ligne soit centrée individuellement.
@@ -459,6 +510,24 @@ Dialogue: 0,0:00:00.00,0:10:00.00,Default,,0,0,0,,${wrapped}
 }
 
 /**
+ * Compression rapide d'une vidéo si > 24 Mo pour respecter la limite Discord
+ */
+function compressVideo(inputPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    const ffmpegPath = getFfmpegPath();
+    execFile(ffmpegPath, [
+      '-y', '-i', inputPath,
+      '-c:v', 'libx264', '-crf', '28', '-preset', 'fast',
+      '-c:a', 'copy', '-movflags', '+faststart',
+      outputPath
+    ], { timeout: 120000 }, (err) => {
+      if (err) reject(new Error(`Compression échouée : ${err.message}`));
+      else resolve();
+    });
+  });
+}
+
+/**
  * Injecte une caption dans une vidéo via ffmpeg avec sous-titres ASS (style TikTok caption)
  * @param {string} inputPath - Chemin de la vidéo source
  * @param {string} outputPath - Chemin de sortie
@@ -469,7 +538,7 @@ Dialogue: 0,0:00:00.00,0:10:00.00,Default,,0,0,0,,${wrapped}
 function injectCaptionIntoVideo(inputPath, outputPath, captionText, workDir) {
   return new Promise((resolve, reject) => {
     const ffmpegPath = getFfmpegPath();
-    const assPath = path.join(workDir, `caption_${Date.now()}.ass`);
+    const assPath = path.join(workDir, `caption_${Date.now()}_${Math.floor(Math.random() * 1000)}.ass`);
 
     try {
       createAssSubtitleFile(assPath, captionText);
@@ -508,148 +577,115 @@ function injectCaptionIntoVideo(inputPath, outputPath, captionText, workDir) {
 }
 
 /**
- * Handler principal : bouton "🎬 Générer un Reel (Caption)"
+ * Gère la génération de Reels avec Caption après sélection du Profile ID et de la quantité
  */
-async function handleGenerateReel(interaction) {
-  await interaction.deferReply({ ephemeral: true });
+async function handleReelsCaptionSelect(interaction, profileId, qty, meta) {
+  let stockRestant = 0;
+  const processedFiles = [];
+  const usedCaptions = [];
 
-  const market = getMarketFromInteraction(interaction);
-
-  // 1. Récupérer la caption depuis #caption-reel
-  let caption = null;
-  try {
-    const captionChannel = await interaction.client.channels.fetch(CAPTION_REEL_CHANNEL_ID).catch(() => null);
-    if (!captionChannel) throw new Error(`Salon #caption-reel (${CAPTION_REEL_CHANNEL_ID}) introuvable.`);
-
-    const msgs = await captionChannel.messages.fetch({ limit: 50 });
-    // Prend un message au hasard parmi les 20 derniers messages non-bot
-    const userMsgs = msgs.filter(m => !m.author.bot && m.content.trim().length > 10).first(20);
-    if (!userMsgs || userMsgs.length === 0) throw new Error('Aucune caption trouvée dans #caption-reel.');
-
-    const randomMsg = userMsgs[Math.floor(Math.random() * userMsgs.length)];
-    caption = randomMsg.content.trim();
-    console.log(`📝 Caption sélectionnée (${caption.length} chars) : ${caption.substring(0, 80)}...`);
-  } catch (err) {
-    return interaction.editReply({
-      embeds: [new EmbedBuilder().setColor(0xff4444).setTitle('❌ Erreur caption').setDescription(err.message)]
-    });
-  }
-
-  // 2. Télécharger une vidéo depuis le Drive (type=reels)
-  let driveData = null;
-  try {
-    // On tente d'abord avec un profile_id aléatoire parmi ceux disponibles
-    const { getAvailableProfiles } = require('../services/drive');
-    const profiles = await getAvailableProfiles();
-    if (!profiles || profiles.length === 0) throw new Error('Aucun profil trouvé dans le Drive.');
-
-    const randomProfile = profiles[Math.floor(Math.random() * profiles.length)];
-    console.log(`📁 Profile Drive sélectionné : ${randomProfile}`);
-
-    driveData = await getFileForProfile('reels', randomProfile, market);
-  } catch (err) {
-    return interaction.editReply({
-      embeds: [new EmbedBuilder().setColor(0xff4444).setTitle('❌ Erreur Drive').setDescription(`Impossible de récupérer une vidéo : ${err.message}`)]
-    });
-  }
-
-  const inputPath = driveData.localPath;
-  const workDir = path.dirname(inputPath);
-  const outputPath = path.join(workDir, `reel_caption_${Date.now()}.mp4`);
-
-  // Afficher un message de progression
-  await interaction.editReply({
+  await interaction.editReply({ 
     embeds: [new EmbedBuilder()
-      .setColor(0xffcc00)
+      .setColor(0xffff00)
       .setTitle('⏳ Génération en cours...')
-      .setDescription(`📝 Caption récupérée ✅\n📁 Vidéo téléchargée ✅\n🎬 Injection du texte via ffmpeg...\n\n*Cela peut prendre 15-30 secondes.*`)
-    ]
+      .setDescription(`🎬 Génération de ${qty} Reel(s) avec Caption pour **${profileId}**...\n📥 Récupération des captions uniques depuis #caption-reel...\nCeci peut prendre quelques secondes.`)
+    ],
+    components: []
   });
 
-  // 3. Injecter la caption dans la vidéo
   try {
-    await injectCaptionIntoVideo(inputPath, outputPath, caption, workDir);
-  } catch (err) {
-    if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
-    return interaction.editReply({
-      embeds: [new EmbedBuilder().setColor(0xff4444).setTitle('❌ Erreur ffmpeg').setDescription(err.message)]
-    });
-  }
+    // 1. Récupérer qty captions distinctes
+    const captions = await getCaptionsPool(interaction.client, qty);
 
-  // 4. Vérifier la taille du fichier (limite Discord : 25Mo sans boost)
-  const MAX_SIZE = 24 * 1024 * 1024; // 24 Mo
-  const fileSize = fs.existsSync(outputPath) ? fs.statSync(outputPath).size : 0;
+    for (let i = 0; i < qty; i++) {
+      const caption = captions[i];
+      usedCaptions.push(caption);
 
-  try {
-    if (fileSize === 0) {
-      throw new Error('Le fichier de sortie est vide. ffmpeg a peut-être échoué silencieusement.');
-    }
+      // Fetch vidéo Drive (type 'reels')
+      const market = getMarketFromInteraction(interaction);
+      const driveData = await getFileForProfile('reels', profileId, market);
+      stockRestant = driveData.stockRestant;
+      const inputPath = driveData.localPath;
+      const workDir = path.dirname(inputPath);
+      const outputPath = path.join(workDir, `reel_caption_${Date.now()}_${i}.mp4`);
 
-    if (fileSize > MAX_SIZE) {
-      // Comprimer une deuxième fois avec un CRF plus élevé
-      const compressedPath = path.join(workDir, `reel_caption_compressed_${Date.now()}.mp4`);
-      await new Promise((resolve, reject) => {
-        const ffmpegPath = getFfmpegPath();
-        execFile(ffmpegPath, [
-          '-y', '-i', outputPath,
-          '-c:v', 'libx264', '-crf', '30', '-preset', 'fast',
-          '-c:a', 'copy', '-movflags', '+faststart',
-          compressedPath
-        ], { timeout: 120000 }, (err) => {
-          if (err) reject(new Error(`Compression échouée : ${err.message}`));
-          else resolve();
-        });
-      });
-      if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
-      // Vérifier à nouveau la taille après compression
-      const newSize = fs.existsSync(compressedPath) ? fs.statSync(compressedPath).size : 0;
-      if (newSize > MAX_SIZE) {
-        // Envoyer juste la caption sans vidéo
-        if (fs.existsSync(compressedPath)) fs.unlinkSync(compressedPath);
-        if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
-        return interaction.editReply({
-          embeds: [new EmbedBuilder()
-            .setColor(0xffa500)
-            .setTitle('⚠️ Vidéo trop lourde')
-            .setDescription(`La vidéo dépasse 25 Mo même après compression.\n\n📝 **Caption :**\n\`\`\`\n${caption.slice(0, 1000)}\n\`\`\`\n\nUtilise-la manuellement dans MultiMetaChanger.`)
-          ]
-        });
+      // Injecter la caption dans la vidéo
+      await injectCaptionIntoVideo(inputPath, outputPath, caption, workDir);
+
+      // Clean raw input file
+      if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+
+      // Vérification taille (limite 24 Mo Discord)
+      const MAX_SIZE = 24 * 1024 * 1024;
+      let finalPath = outputPath;
+      const size = fs.existsSync(outputPath) ? fs.statSync(outputPath).size : 0;
+      if (size > MAX_SIZE) {
+        const compressedPath = path.join(workDir, `compressed_${Date.now()}_${i}.mp4`);
+        await compressVideo(outputPath, compressedPath);
+        if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+        finalPath = compressedPath;
       }
-      // Envoyer la vidéo compressée
-      const attachment = new AttachmentBuilder(compressedPath, { name: 'reel_avec_caption.mp4' });
-      await interaction.editReply({
-        embeds: [new EmbedBuilder()
-          .setColor(0x00ff88)
-          .setTitle('🎬 Reel généré !')
-          .setDescription(`✅ Caption injectée avec succès !\n\n📝 **Caption utilisée :**\n> ${caption.slice(0, 300)}${caption.length > 300 ? '...' : ''}`)
-          .setFooter({ text: `Marché : ${market} • Compressé pour Discord` })
-        ],
-        files: [attachment]
-      });
-      if (fs.existsSync(compressedPath)) fs.unlinkSync(compressedPath);
-    } else {
-      // Envoyer directement
-      const attachment = new AttachmentBuilder(outputPath, { name: 'reel_avec_caption.mp4' });
-      await interaction.editReply({
-        embeds: [new EmbedBuilder()
-          .setColor(0x00ff88)
-          .setTitle('🎬 Reel généré !')
-          .setDescription(`✅ Caption injectée avec succès !\n\n📝 **Caption utilisée :**\n> ${caption.slice(0, 300)}${caption.length > 300 ? '...' : ''}`)
-          .setFooter({ text: `Marché : ${market} • ${(fileSize / 1024 / 1024).toFixed(1)} Mo` })
-        ],
-        files: [attachment]
-      });
-      if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+
+      processedFiles.push({ path: finalPath, caption });
     }
+
+    // 2. Envoyer les fichiers
+    const attachments = processedFiles.map((pf, idx) => 
+      new AttachmentBuilder(pf.path, { name: `reel_caption_${profileId.replace(/\s+/g, '_')}_${idx + 1}.mp4` })
+    );
+
+    const captionSummary = usedCaptions
+      .map((c, idx) => `**Reel ${idx + 1} :**\n> ${c.slice(0, 150)}${c.length > 150 ? '...' : ''}`)
+      .join('\n\n');
+
+    const embed = new EmbedBuilder()
+      .setColor(meta.color)
+      .setTitle(`${meta.emoji} Tes ${meta.label} (${qty}) — ${profileId}`)
+      .setDescription(`Voici tes vidéos prêtes avec captions distinctes pour **${profileId}** :\n\n${captionSummary.slice(0, 3800)}\n\n📦 **Stock restant :** ${stockRestant}`)
+      .setFooter({ text: 'Sous-titres ASS style TikTok/Instagram • Caption unique par vidéo' })
+      .setTimestamp();
+
+    await interaction.editReply({ embeds: [embed], files: attachments });
+
+    // 3. Nettoyage
+    for (const pf of processedFiles) {
+      if (fs.existsSync(pf.path)) try { fs.unlinkSync(pf.path); } catch (_) {}
+    }
+
   } catch (err) {
-    console.error('Erreur envoi reel:', err);
-    await interaction.editReply({
-      embeds: [new EmbedBuilder().setColor(0xff4444).setTitle('❌ Erreur envoi').setDescription(err.message)]
+    console.error('Erreur handleReelsCaptionSelect:', err);
+    await interaction.editReply({ 
+      embeds: [new EmbedBuilder().setColor(0xff0000).setTitle('❌ Erreur de génération').setDescription(err.message)]
     });
-  } finally {
-    // Nettoyage
-    if (fs.existsSync(inputPath)) try { fs.unlinkSync(inputPath); } catch (_) {}
   }
 }
 
-module.exports = { handleContentFactory, handleContentSelect, handleFounderSelect, handleGenerateReel };
+/**
+ * Ouvre le menu de choix du Profile ID pour "🎬 Générer un Reel (Caption)"
+ */
+async function handleReelCaptionInit(interaction) {
+  await interaction.deferReply({ ephemeral: true });
+  const meta = CONTENT_LABELS.reelscaption;
+  const { getAvailableProfiles } = require('../services/drive');
+  const profiles = await getAvailableProfiles();
+  const idList = profiles.length > 0 ? profiles : ['ID 1'];
+
+  const embed = new EmbedBuilder()
+    .setColor(meta.color)
+    .setTitle(`👨‍💻 Choix du Profil — ${meta.label}`)
+    .setDescription(`Sélectionne le Profile ID pour lequel tu veux générer des Reels avec Caption :`);
+
+  const row = buildProfileSelectRow('reelscaption', idList, 0);
+  return interaction.editReply({ embeds: [embed], components: [row] });
+}
+
+// Alias de rétrocompatibilité
+const handleGenerateReel = handleReelCaptionInit;
+
+module.exports = { 
+  handleContentFactory, 
+  handleContentSelect, 
+  handleFounderSelect, 
+  handleGenerateReel,
+  handleReelCaptionInit 
+};

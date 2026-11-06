@@ -61,10 +61,11 @@ function initDrive() {
 }
 
 const CONTENT_TYPE_MAP = {
-  reels:  'Reels',
-  post:   'Posts',
-  pp:     'PP',
-  cta:    'CTA',
+  reels:        'Reels',
+  reelscaption: 'Reels',
+  post:         'Posts',
+  pp:           'PP',
+  cta:          'CTA',
 };
 
 function hasAnyMediaFiles(folderPath) {
