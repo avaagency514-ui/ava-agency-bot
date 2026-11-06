@@ -223,24 +223,22 @@ function getMentionText(draft) {
  * Retourne le libellé de la cible sélectionnée
  */
 function getTargetLabel(draft) {
-  switch (draft.targetPreset) {
-    case 'annonce_general':
-      return '📢 Salon #annonce-general';
-    case 'all_vas_team':
-      return '💼 Tous les salons d\'équipe VAs (Insta, Twitter, Threads, FB, Jailbreak)';
-    case 'all_vas_personal':
-      return '👤 Tous les salons individuels privés des VAs actifs';
-    case 'all_chatters':
-      return '💬 Tous les salons d\'équipe Chatters (FR & US)';
-    case 'all_managers':
-      return '👔 Espace Managers';
-    case 'custom':
-      return draft.customChannelIds && draft.customChannelIds.length > 0
-        ? `🎯 Salons sur-mesure (${draft.customChannelIds.map(id => `<#${id}>`).join(', ')})`
-        : '⚠️ Aucun salon sélectionné !';
-    default:
-      return '📢 Salon #annonce-general';
+  const ids = (draft.channelIds && draft.channelIds.length > 0)
+    ? draft.channelIds
+    : (draft.customChannelIds && draft.customChannelIds.length > 0)
+      ? draft.customChannelIds
+      : [CHANNEL_ANNONCE_GENERAL_ID];
+
+  if (!ids || ids.length === 0) {
+    return '⚠️ Aucun salon sélectionné !';
   }
+  if (ids.length === 1) {
+    return `<#${ids[0]}>`;
+  }
+  if (ids.length <= 4) {
+    return `${ids.length} salons : ${ids.map(id => `<#${id}>`).join(', ')}`;
+  }
+  return `${ids.length} salons : ${ids.slice(0, 3).map(id => `<#${id}>`).join(', ')} (+${ids.length - 3} autres)`;
 }
 
 /**
@@ -271,56 +269,26 @@ function buildPreviewComponents(draft) {
       .setStyle(draft.theme === 'royal' ? ButtonStyle.Primary : ButtonStyle.Secondary)
   );
 
-  // Ligne 2 : Cibles de diffusion
-  const targetSelect = new StringSelectMenuBuilder()
-    .setCustomId(`pub_select_target_${draft.id}`)
-    .setPlaceholder(`🎯 Destination actuelle : ${getTargetLabel(draft).slice(0, 50)}`)
-    .addOptions([
-      {
-        label: '📢 #annonce-general',
-        description: 'Publier uniquement dans le salon principal d\'annonces',
-        value: 'annonce_general',
-        emoji: '📢',
-        default: draft.targetPreset === 'annonce_general'
-      },
-      {
-        label: '💼 Pôles VAs (Salons d\'équipe)',
-        description: 'Salons de discussion et travail d\'Insta, Twitter, Threads, FB...',
-        value: 'all_vas_team',
-        emoji: '💼',
-        default: draft.targetPreset === 'all_vas_team'
-      },
-      {
-        label: '👤 VAs Actifs (Salons individuels)',
-        description: 'Envoyer directement dans chaque salon privé de VA',
-        value: 'all_vas_personal',
-        emoji: '👤',
-        default: draft.targetPreset === 'all_vas_personal'
-      },
-      {
-        label: '💬 Pôle Chatters (FR & US)',
-        description: 'Salons de travail et discussion des Chatters',
-        value: 'all_chatters',
-        emoji: '💬',
-        default: draft.targetPreset === 'all_chatters'
-      },
-      {
-        label: '👔 Espace Managers',
-        description: 'Salons privés des managers',
-        value: 'all_managers',
-        emoji: '👔',
-        default: draft.targetPreset === 'all_managers'
-      },
-      {
-        label: '🎯 Salons sur-mesure',
-        description: 'Choisir un ou plusieurs salons précis dans la liste',
-        value: 'custom',
-        emoji: '🎯',
-        default: draft.targetPreset === 'custom'
-      }
-    ]);
+  // Ligne 2 : Sélecteur direct de TOUS les salons Discord du serveur
+  // Affiche l'arborescence complète par catégorie avec barre de recherche (ex: #sop fb)
+  const channelSelect = new ChannelSelectMenuBuilder()
+    .setCustomId(`pub_select_channels_${draft.id}`)
+    .setPlaceholder('📍 Choisir le(s) salon(s) cible(s) (ex: #sop fb, #discussion, #annonce...)')
+    .setChannelTypes([ChannelType.GuildText, ChannelType.GuildAnnouncement])
+    .setMinValues(1)
+    .setMaxValues(25);
 
-  const targetRow = new ActionRowBuilder().addComponents(targetSelect);
+  const selectedIds = (draft.channelIds && draft.channelIds.length > 0)
+    ? draft.channelIds
+    : (draft.customChannelIds && draft.customChannelIds.length > 0)
+      ? draft.customChannelIds
+      : [CHANNEL_ANNONCE_GENERAL_ID];
+
+  if (selectedIds.length > 0) {
+    channelSelect.setDefaultChannels(selectedIds.slice(0, 25));
+  }
+
+  const targetRow = new ActionRowBuilder().addComponents(channelSelect);
 
   // Ligne 3 : Options de mentions
   const mentionRow = new ActionRowBuilder().addComponents(
@@ -360,12 +328,20 @@ function buildPreviewComponents(draft) {
       .setStyle(ButtonStyle.Secondary)
   );
 
-  // Ligne 5 : Actions finales (Diffusion / Annulation)
+  // Ligne 5 : Actions finales (Diffusion / Raccourcis Cibles / Annulation)
   const actionRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`pub_btn_broadcast_${draft.id}`)
       .setLabel('🚀 Diffuser Maintenant')
       .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`pub_btn_target_annonce_${draft.id}`)
+      .setLabel('📢 #annonce-general')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`pub_btn_target_vas_${draft.id}`)
+      .setLabel('💼 Tous Pôles VAs')
+      .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId(`pub_btn_cancel_${draft.id}`)
       .setLabel('🗑️ Annuler')
@@ -528,6 +504,7 @@ async function handlePubMessageDrop(message, client) {
     useAi: Boolean(aiResult),
     imageUrl,
     theme: 'info',
+    channelIds: [CHANNEL_ANNONCE_GENERAL_ID],
     targetPreset: 'annonce_general',
     customChannelIds: [],
     mentionType: 'none',
@@ -548,13 +525,28 @@ async function handlePubMessageDrop(message, client) {
 async function resolveTargetChannels(draft, guild) {
   const channels = [];
 
+  // 1. Liste explicite de salons sélectionnés
+  const explicitIds = (draft.channelIds && draft.channelIds.length > 0)
+    ? draft.channelIds
+    : (draft.customChannelIds && draft.customChannelIds.length > 0)
+      ? draft.customChannelIds
+      : null;
+
+  if (explicitIds && explicitIds.length > 0) {
+    for (const chId of explicitIds) {
+      const ch = guild.channels.cache.get(chId);
+      if (ch && ch.isTextBased()) channels.push(ch);
+    }
+    const uniqueChannels = Array.from(new Map(channels.map(c => [c.id, c])).values());
+    if (uniqueChannels.length > 0) return uniqueChannels;
+  }
+
+  // 2. Replis vers les presets si nécessaire
   if (draft.targetPreset === 'annonce_general') {
     const ch = guild.channels.cache.get(CHANNEL_ANNONCE_GENERAL_ID);
     if (ch && ch.isTextBased()) channels.push(ch);
   }
-
   else if (draft.targetPreset === 'all_vas_team') {
-    // Salons d'équipe principaux des catégories VAs
     const vaCategories = [
       '1498966532322234508', // Espace insta Mobile FR
       '1502713094789529792', // Espace twitter FR
@@ -568,14 +560,12 @@ async function resolveTargetChannels(draft, guild) {
       const catChannels = guild.channels.cache.filter(c =>
         c.parentId === catId &&
         c.isTextBased() &&
-        (c.name.includes('discussion') || c.name.includes('travaille') || c.name.includes('drive-contenu'))
+        (c.name.includes('discussion') || c.name.includes('travaille') || c.name.includes('sop') || c.name.includes('drive-contenu'))
       );
       catChannels.forEach(c => channels.push(c));
     }
   }
-
   else if (draft.targetPreset === 'all_vas_personal') {
-    // Tous les salons privés des VAs enregistrés
     try {
       const vas = vaQueries.getActifs.all();
       for (const va of vas) {
@@ -588,9 +578,7 @@ async function resolveTargetChannels(draft, guild) {
       console.warn('⚠️ Erreur lecture vas dans SQLite:', e.message);
     }
   }
-
   else if (draft.targetPreset === 'all_chatters') {
-    // Salons Chatting FR & Chatting US
     const chatterCategories = [
       '1524736043985928244', // Chatting FR
       '1555279742008295424', // Chatting US
@@ -605,21 +593,16 @@ async function resolveTargetChannels(draft, guild) {
       catChannels.forEach(c => channels.push(c));
     }
   }
-
   else if (draft.targetPreset === 'all_managers') {
-    // Espace manager (1555451162302353408)
     const mgrChannels = guild.channels.cache.filter(c =>
       c.parentId === '1555451162302353408' &&
       c.isTextBased()
     );
     mgrChannels.forEach(c => channels.push(c));
   }
-
-  else if (draft.targetPreset === 'custom') {
-    for (const chId of (draft.customChannelIds || [])) {
-      const ch = guild.channels.cache.get(chId);
-      if (ch && ch.isTextBased()) channels.push(ch);
-    }
+  else {
+    const ch = guild.channels.cache.get(CHANNEL_ANNONCE_GENERAL_ID);
+    if (ch && ch.isTextBased()) channels.push(ch);
   }
 
   // Éliminer les doublons éventuels
@@ -739,6 +722,7 @@ async function handlePubInteraction(interaction, client) {
       useAi: true,
       imageUrl: null,
       theme: tmpl.theme,
+      channelIds: [CHANNEL_ANNONCE_GENERAL_ID],
       targetPreset: 'annonce_general',
       customChannelIds: [],
       mentionType: 'none',
@@ -793,6 +777,7 @@ async function handlePubInteraction(interaction, client) {
       useAi: Boolean(aiResult),
       imageUrl,
       theme: 'info',
+      channelIds: [CHANNEL_ANNONCE_GENERAL_ID],
       targetPreset: 'annonce_general',
       customChannelIds: [],
       mentionType: 'none',
@@ -855,7 +840,60 @@ async function handlePubInteraction(interaction, client) {
     return interaction.editReply(preview);
   }
 
-  // 9. Changement de Cible (pub_select_target_DRAFTID)
+  // 9. Sélection directe de n'importe quel salon du serveur (pub_select_channels_DRAFTID)
+  if (id.startsWith('pub_select_channels_')) {
+    const draftId = id.replace('pub_select_channels_', '');
+    const draft = pubDrafts.get(draftId);
+    if (!draft) return interaction.reply({ content: 'Brouillon introuvable ou expiré.', ephemeral: true });
+
+    draft.channelIds = interaction.values;
+    draft.customChannelIds = interaction.values;
+    const preview = buildPreviewMessage(draft);
+    return interaction.update(preview);
+  }
+
+  // 9b. Raccourci vers #annonce-general
+  if (id.startsWith('pub_btn_target_annonce_')) {
+    const draftId = id.replace('pub_btn_target_annonce_', '');
+    const draft = pubDrafts.get(draftId);
+    if (!draft) return interaction.reply({ content: 'Brouillon introuvable ou expiré.', ephemeral: true });
+
+    draft.channelIds = [CHANNEL_ANNONCE_GENERAL_ID];
+    draft.customChannelIds = [CHANNEL_ANNONCE_GENERAL_ID];
+    draft.targetPreset = 'annonce_general';
+    const preview = buildPreviewMessage(draft);
+    return interaction.update(preview);
+  }
+
+  // 9c. Raccourci vers Tous les pôles VAs (salons de travail, discussion, sop...)
+  if (id.startsWith('pub_btn_target_vas_')) {
+    const draftId = id.replace('pub_btn_target_vas_', '');
+    const draft = pubDrafts.get(draftId);
+    if (!draft) return interaction.reply({ content: 'Brouillon introuvable ou expiré.', ephemeral: true });
+
+    const guild = interaction.guild;
+    const vaCategories = [
+      '1498966532322234508', // Espace insta Mobile FR
+      '1502713094789529792', // Espace twitter FR
+      '1555278617058091058', // Espace twitter US
+      '1555277343122264266', // Espace threads fr
+      '1555269794696274172', // Espace facebook
+      '1430837591166685194', // Espace insta jailbreak FR
+    ];
+
+    const teamChs = guild.channels.cache.filter(c =>
+      vaCategories.includes(c.parentId) &&
+      c.isTextBased() &&
+      (c.name.includes('discussion') || c.name.includes('travaille') || c.name.includes('sop') || c.name.includes('drive-contenu'))
+    );
+
+    draft.channelIds = Array.from(teamChs.keys()).slice(0, 25);
+    draft.customChannelIds = draft.channelIds;
+    const preview = buildPreviewMessage(draft);
+    return interaction.update(preview);
+  }
+
+  // 9d. Ancien sélecteur de présets (compatibilité)
   if (id.startsWith('pub_select_target_')) {
     const draftId = id.replace('pub_select_target_', '');
     const draft = pubDrafts.get(draftId);
@@ -870,7 +908,7 @@ async function handlePubInteraction(interaction, client) {
         .setPlaceholder('👉 Cliquez ici pour choisir les salons de destination...')
         .setChannelTypes([ChannelType.GuildText, ChannelType.GuildAnnouncement])
         .setMinValues(1)
-        .setMaxValues(10);
+        .setMaxValues(25);
 
       const row = new ActionRowBuilder().addComponents(channelSelect);
 
