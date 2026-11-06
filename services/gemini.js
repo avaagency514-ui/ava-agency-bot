@@ -31,22 +31,13 @@ const FREELLM_MODELS = [
 
 const SDK_MODELS = [
   'gemini-3.5-flash-lite',
-  'gemini-3.1-pro-preview',
-  'gemini-flash-latest',
-  'gemini-3.5-flash',
+  'gemini-flash-lite-latest',
+  'gemini-3.1-flash-lite',
   'gemini-3.6-flash',
   'gemini-3.7-flash',
+  'gemini-3.5-flash',
   'gemini-3.8-flash',
-  'gemini-flash-lite-latest',
-  'gemini-pro-latest',
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-  'gemini-3-flash-preview',
-  'gemini-3.1-flash-lite',
-  'gemini-3.1-flash-lite-preview',
-  'gemini-omni-1.1-flash',
-  'gemini-omni-flash-preview',
-  'antigravity-preview-latest'
+  'gemini-flash-latest'
 ];
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -348,7 +339,14 @@ RÈGLES IMPORTANTES :
   if (!genAI) throw new Error("Gemini API non configurée.");
 
   // Modèles supportant les images / vision
-  const visionModels = ['gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-flash-latest'];
+  const visionModels = [
+    'gemini-3.5-flash-lite',
+    'gemini-flash-lite-latest',
+    'gemini-3.1-flash-lite',
+    'gemini-3.5-flash',
+    'gemini-3.8-flash',
+    'gemini-flash-latest'
+  ];
   let lastError = null;
 
   for (const modelName of visionModels) {
