@@ -1191,8 +1191,14 @@ async function handlePubInteraction(interaction, client) {
       console.warn('⚠️ Échec ré-optimisation IA:', aiErr.message);
     }
 
-    const preview = getPreviewPayload(draft, interaction);
-    return interaction.editReply(preview);
+    try {
+      const preview = getPreviewPayload(draft, interaction);
+      return await interaction.editReply(preview);
+    } catch (replyErr) {
+      console.warn('⚠️ Échec interaction.editReply dans pub_btn_reai:', replyErr.message);
+      const fallbackPreview = getPreviewPayload(draft, null, null);
+      return await interaction.editReply(fallbackPreview);
+    }
   }
 
   // 9. Sélecteur principal de cible / destination (pub_select_dest_DRAFTID)

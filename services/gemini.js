@@ -417,11 +417,20 @@ ${rawText}
   if (!genAI) initGemini();
   if (!genAI) throw new Error("Gemini API non configurée.");
 
-  const models = ['gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-flash-latest'];
+  const models = [
+    'gemini-3.5-flash-lite',
+    'gemini-flash-lite-latest',
+    'gemini-3.1-flash-lite',
+    'gemini-3.6-flash',
+    'gemini-3.7-flash',
+    'gemini-3.5-flash',
+    'gemini-3.8-flash',
+    'gemini-flash-latest'
+  ];
   let lastError = null;
 
   for (const modelName of models) {
-    let retries = 2;
+    let retries = 1;
     while (retries >= 0) {
       try {
         const model = genAI.getGenerativeModel({ model: modelName });
@@ -461,7 +470,30 @@ ${rawText}
     }
   }
 
-  throw new Error(`La mise en forme IA a échoué: ${lastError?.message || 'Erreur inconnue'}`);
+  console.warn(`⚠️ Tous les modèles Gemini ont échoué (${lastError?.message}), application du formatage local...`);
+  return formatAnnouncementFallback(rawText, titleHint);
 }
 
-module.exports = { initGemini, generateUniqueText, translateToEnglish, generateTwitterText, extractHookFromFramePaths, formatAnnouncementWithAI };
+/**
+ * Formatage algorithmique local de secours si les quotas IA sont épuisés
+ */
+function formatAnnouncementFallback(rawText, titleHint = '') {
+  if (!rawText) return null;
+  const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
+  const detectedTitle = titleHint || (lines.length > 0 ? lines[0].replace(/^[#* \-_]+|[#* \-_]+$/g, '').slice(0, 70).toUpperCase() : 'COMMUNIQUÉ OFFICIEL');
+
+  let formatted = rawText
+    .replace(/^[-*•]\s+/gm, '🔹 ')
+    .replace(/^(Phase\s+\d+|Étape\s+\d+|Partie\s+\d+|Module\s+\d+)\s*[:\-]\s*(.*)$/gmi, '\n### 📌 $1 : $2\n')
+    .replace(/^([A-Z]|\d+)\.\s+([^\n]+)$/gm, '\n### 🚀 $1. $2\n')
+    .replace(/\b(Important|Obligatoire|Attention|Interdiction formelle|Règle d'Or|Palier de déblocage|Deadline|Warm-up)\b/gi, '**$1**')
+    .trim();
+
+  return {
+    title: detectedTitle,
+    badge: 'GUIDE OPÉRATIONNEL • PROTOCOLE',
+    content: formatted
+  };
+}
+
+module.exports = { initGemini, generateUniqueText, translateToEnglish, generateTwitterText, extractHookFromFramePaths, formatAnnouncementWithAI, formatAnnouncementFallback };
