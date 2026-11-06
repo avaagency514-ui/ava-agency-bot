@@ -384,4 +384,84 @@ RÈGLES IMPORTANTES :
   throw new Error(`L'analyse OCR a échoué via tous les modèles: ${lastError?.message || 'Erreur inconnue'}`);
 }
 
-module.exports = { initGemini, generateUniqueText, translateToEnglish, generateTwitterText, extractHookFromFramePaths };
+/**
+ * Reformule et sublime une annonce brute avec l'IA (Gemini)
+ * Structure les phases, ajoute du gras, des emojis et une mise en page moderne
+ * @param {string} rawText - Texte brut rédigé par l'utilisateur
+ * @param {string} [titleHint] - Indication ou titre optionnel
+ * @returns {Promise<{ title: string, badge: string, content: string }>}
+ */
+async function formatAnnouncementWithAI(rawText, titleHint = '') {
+  const prompt = `Tu es le directeur de la communication et de l'excellence opérationnelle d'AVA Agency.
+Ton rôle est de transformer le texte brut ci-dessous en un post d'annonce Discord MAGNIFIQUE, moderne, aéré, captivant et ultra professionnel.
+
+RÈGLES CRUCIALES DE MISE EN FORME DISCORD :
+1. Structure & Hiérarchie : utilise des titres Markdown de section (ex: ### 🚀 Titre de section, ### 📌 Étape 1 : ...), des puces aérées (•, ➡️, 🔹) et des séparateurs visuels légers (---).
+2. Clarté & Emphase : mets en valeur les mots-clés importants, chiffres, deadlines et consignes en **gras**.
+3. Émojis modernes : utilise des émojis pertinents et professionnels pour guider l'œil sans surcharger.
+4. INTÉGRITÉ ABSOLUE DES DONNÉES : ne supprime AUCUNE consigne, aucun pseudo de modèle, aucun lien, aucun salon Discord (#...), aucun chiffre. Tout ce qui est technique ou opérationnel DOIT être conservé avec exactitude.
+5. Si le texte détaille des phases ou un protocole (guide/SOP/warm-up) : organise-le de façon claire et méthodique avec des étapes bien découpées.
+6. Tu DOIS répondre STRICTEMENT au format JSON valide suivant, SANS balises markdown \`\`\`json ou explications autour :
+{
+  "title": "TITRE COURT ET PERCUTANT EN MAJUSCULES (max 70 caractères)",
+  "badge": "BADGE / THÈME COURT (ex: GUIDE OPÉRATIONNEL • PROTOCOLE)",
+  "content": "Contenu complet réorganisé et sublimé pour Discord"
+}
+
+${titleHint ? `Indication de titre souhaité : "${titleHint}"\n` : ''}
+Texte brut à sublimer :
+"""
+${rawText}
+"""`;
+
+  if (!genAI) initGemini();
+  if (!genAI) throw new Error("Gemini API non configurée.");
+
+  const models = ['gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-flash-latest'];
+  let lastError = null;
+
+  for (const modelName of models) {
+    let retries = 2;
+    while (retries >= 0) {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        let text = response.text().trim();
+
+        text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+
+        try {
+          const parsed = JSON.parse(text);
+          if (parsed.content) {
+            return {
+              title: parsed.title || titleHint || 'COMMUNIQUÉ OFFICIEL',
+              badge: parsed.badge || 'COMMUNICATION INTERNE',
+              content: parsed.content
+            };
+          }
+        } catch (jsonErr) {
+          return {
+            title: titleHint || 'COMMUNIQUÉ OFFICIEL',
+            badge: 'COMMUNICATION INTERNE',
+            content: text
+          };
+        }
+
+      } catch (err) {
+        lastError = err;
+        console.warn(`⚠️ Modèle Format AI "${modelName}" error (${err.message})...`);
+        if (err.message && err.message.includes('503') && retries > 0) {
+          await sleep(2000);
+          retries--;
+        } else {
+          break;
+        }
+      }
+    }
+  }
+
+  throw new Error(`La mise en forme IA a échoué: ${lastError?.message || 'Erreur inconnue'}`);
+}
+
+module.exports = { initGemini, generateUniqueText, translateToEnglish, generateTwitterText, extractHookFromFramePaths, formatAnnouncementWithAI };

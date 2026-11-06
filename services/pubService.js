@@ -3,6 +3,8 @@
  * Studio de Diffusion d'Annonces & Communication Interne (#pub)
  * Permet de créer, prévisualiser et diffuser des posts modernes avec embeds
  * et mentions ciblées dans les salons de l'agence.
+ * Inclut l'optimisation IA (Gemini 3.5 Flash) et la prise en charge sans coupure
+ * des textes longs (multi-embeds automatiques).
  */
 
 const {
@@ -19,7 +21,9 @@ const {
   ChannelType
 } = require('discord.js');
 
+const axios = require('axios');
 const { vaQueries } = require('../database/db');
+const { formatAnnouncementWithAI } = require('./gemini');
 
 // ID du salon de contrôle
 const CHANNEL_PUB_ID = '1568173565474373702';
@@ -36,28 +40,28 @@ const PUB_THEMES = {
     id: 'info',
     label: 'Information',
     badge: 'INFORMATION OFFICIELLE',
-    color: 0x3498db, // Bleu
+    color: 0x3498db, // Bleu Cobalt
     emoji: 'ℹ️'
   },
   success: {
     id: 'success',
     label: 'Succès / Primes',
     badge: 'FÉLICITATIONS & OBJECTIFS',
-    color: 0x2ecc71, // Vert
+    color: 0x2ecc71, // Vert Émeraude
     emoji: '🏆'
   },
   warning: {
     id: 'warning',
     label: 'Rappel / Consigne',
     badge: 'RAPPEL IMPORTANT • CONSIGNES',
-    color: 0xf39c12, // Orange
+    color: 0xf39c12, // Orange Vif
     emoji: '⚠️'
   },
   urgent: {
     id: 'urgent',
     label: 'Urgent / Alerte',
     badge: 'COMMUNIQUÉ URGENT • ACTION REQUISE',
-    color: 0xe74c3c, // Rouge
+    color: 0xe74c3c, // Rouge Carmin
     emoji: '🚨'
   },
   royal: {
@@ -115,91 +119,88 @@ const PUB_TEMPLATES = {
 };
 
 /**
- * Configure ou met à jour le panneau de contrôle permanent dans #pub
+ * Découpe intelligemment un texte trop long en morceaux de moins de maxChunk caractères
+ * en respectant les paragraphes et retours à la ligne.
  */
-async function setupPubPanelChannel(client) {
-  try {
-    const channel = await client.channels.fetch(CHANNEL_PUB_ID).catch(() => null);
-    if (!channel || !channel.isTextBased()) return;
+function splitContentIntoChunks(content, maxChunk = 3800) {
+  if (!content || content.length <= maxChunk) {
+    return [content || ''];
+  }
 
-    // Purger les anciens panneaux du bot
-    const messages = await channel.messages.fetch({ limit: 30 }).catch(() => null);
-    if (messages) {
-      const oldPanels = messages.filter(m =>
-        m.author.id === client.user.id &&
-        m.embeds.length > 0 &&
-        m.embeds[0]?.title?.includes('AVA Broadcast Studio')
-      );
-      for (const [, oldMsg] of oldPanels) {
-        await oldMsg.delete().catch(() => {});
-      }
+  const chunks = [];
+  let remaining = content;
+
+  while (remaining.length > 0) {
+    if (remaining.length <= maxChunk) {
+      chunks.push(remaining);
+      break;
     }
 
-    const embed = new EmbedBuilder()
-      .setColor(0x8A2BE2) // Violet élégant
-      .setTitle('📢 AVA Broadcast Studio — Diffusion d\'Annonces & Posts')
-      .setDescription(
-        `Bienvenue dans le **Centre de Diffusion Officiel** d'AVA Agency.\n` +
-        `Depuis cet espace, vous pouvez créer, styliser et propulser des annonces percutantes vers l'ensemble de vos équipes.\n\n` +
-        `✨ **Deux méthodes pour créer un post :**\n` +
-        `• **Option 1 (Formulaire complet) :** Cliquez sur **📝 Créer une Annonce** ci-dessous pour rédiger votre texte et titre.\n` +
-        `• **Option 2 (Direct) :** Écrivez simplement votre message (avec ou sans image) directement dans ce salon.\n\n` +
-        `🎯 **Fonctionnalités avancées disponibles :**\n` +
-        `• **5 Thèmes visuels :** Info, Succès/Primes, Rappels, Urgent, Direction.\n` +
-        `• **Ciblage par pôle :** Annonce générale, tous les VAs, tous les Chatters, ou salon sur-mesure.\n` +
-        `• **Mentions ciblées :** Sans ping, \`@everyone\`, \`@here\`, ou mentions par rôle spécifique.\n` +
-        `• **Prévisualisation en direct :** Aperçu du rendu exact avant tout envoi.\n\n` +
-        `*Prêt à communiquer ? Utilisez les commandes interactives ci-dessous :*`
-      )
-      .setFooter({ text: 'AVA Agency • Studio de Communication Interne' })
-      .setTimestamp();
+    // Coupure sur double saut de ligne si possible
+    let splitIdx = remaining.lastIndexOf('\n\n', maxChunk);
+    if (splitIdx === -1 || splitIdx < maxChunk * 0.5) {
+      // Sinon sur simple saut de ligne
+      splitIdx = remaining.lastIndexOf('\n', maxChunk);
+    }
+    if (splitIdx === -1 || splitIdx < maxChunk * 0.3) {
+      // Sinon sur espace
+      splitIdx = remaining.lastIndexOf(' ', maxChunk);
+    }
+    if (splitIdx === -1) {
+      splitIdx = maxChunk;
+    }
 
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('pub_btn_create_modal')
-        .setLabel('📝 Créer une Annonce')
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId('pub_btn_templates')
-        .setLabel('⚡ Modèles Express')
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId('pub_btn_refresh_panel')
-        .setLabel('🔄 Actualiser le Studio')
-        .setStyle(ButtonStyle.Secondary)
-    );
-
-    await channel.send({ embeds: [embed], components: [row] });
-    console.log('✅ Panneau AVA Broadcast Studio initialisé dans #pub');
-  } catch (err) {
-    console.error('❌ Erreur setupPubPanelChannel:', err.message);
+    chunks.push(remaining.substring(0, splitIdx).trim());
+    remaining = remaining.substring(splitIdx).trim();
   }
+
+  return chunks;
 }
 
 /**
- * Construit l'embed moderne de l'annonce à partir du brouillon
+ * Construit un tableau d'Embeds modernes pour l'annonce.
+ * Si le contenu dépasse la limite Discord, il est automatiquement découpé en plusieurs embeds consécutifs sans perte.
  */
-function buildAnnouncementEmbed(draft) {
+function buildAnnouncementEmbeds(draft) {
   const theme = PUB_THEMES[draft.theme] || PUB_THEMES.info;
+  const activeContent = (draft.useAi && draft.aiContent) ? draft.aiContent : draft.rawContent;
+  const chunks = splitContentIntoChunks(activeContent, 3800);
 
-  const embed = new EmbedBuilder()
-    .setColor(theme.color)
-    .setAuthor({
-      name: `AVA Agency • ${draft.badge || theme.badge}`,
-      iconURL: draft.authorAvatar || undefined
-    })
-    .setTitle(`${theme.emoji} ${draft.title}`)
-    .setDescription(draft.content)
-    .setFooter({
-      text: `Publié par ${draft.authorTag} • AVA Management System`
-    })
-    .setTimestamp(draft.createdAt || Date.now());
+  const embeds = [];
 
-  if (draft.imageUrl) {
-    embed.setImage(draft.imageUrl);
-  }
+  chunks.forEach((chunk, index) => {
+    const isFirst = index === 0;
+    const isLast = index === chunks.length - 1;
 
-  return embed;
+    const embed = new EmbedBuilder().setColor(theme.color);
+
+    if (isFirst) {
+      embed.setAuthor({
+        name: `AVA Agency • ${draft.badge || theme.badge}`,
+        iconURL: draft.authorAvatar || undefined
+      });
+      embed.setTitle(`${theme.emoji} ${draft.title}`);
+      if (draft.imageUrl) {
+        embed.setImage(draft.imageUrl);
+      }
+    } else {
+      embed.setTitle(`${theme.emoji} ${draft.title} — Suite (${index + 1}/${chunks.length})`);
+    }
+
+    embed.setDescription(chunk);
+
+    if (isLast) {
+      const modeNotice = draft.useAi ? ' • ✨ Optimisé par IA' : '';
+      embed.setFooter({
+        text: `Publié par ${draft.authorTag}${modeNotice} • AVA Management System`
+      });
+      embed.setTimestamp(draft.createdAt || Date.now());
+    }
+
+    embeds.push(embed);
+  });
+
+  return embeds;
 }
 
 /**
@@ -234,7 +235,7 @@ function getTargetLabel(draft) {
     case 'all_managers':
       return '👔 Espace Managers';
     case 'custom':
-      return draft.customChannelIds.length > 0
+      return draft.customChannelIds && draft.customChannelIds.length > 0
         ? `🎯 Salons sur-mesure (${draft.customChannelIds.map(id => `<#${id}>`).join(', ')})`
         : '⚠️ Aucun salon sélectionné !';
     default:
@@ -273,7 +274,7 @@ function buildPreviewComponents(draft) {
   // Ligne 2 : Cibles de diffusion
   const targetSelect = new StringSelectMenuBuilder()
     .setCustomId(`pub_select_target_${draft.id}`)
-    .setPlaceholder(`🎯 Destination actuelle : ${draft.targetPreset}`)
+    .setPlaceholder(`🎯 Destination actuelle : ${getTargetLabel(draft).slice(0, 50)}`)
     .addOptions([
       {
         label: '📢 #annonce-general',
@@ -341,43 +342,126 @@ function buildPreviewComponents(draft) {
       .setStyle(draft.mentionType === 'role' ? ButtonStyle.Primary : ButtonStyle.Secondary)
   );
 
-  // Ligne 4 : Actions finales
+  // Ligne 4 : Options de mise en forme & IA
+  const aiButtonLabel = draft.useAi ? '✨ Version IA (Active)' : '📄 Version d\'origine (Active)';
+  const aiRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`pub_toggle_ai_${draft.id}`)
+      .setLabel(aiButtonLabel)
+      .setEmoji(draft.useAi ? '✨' : '📄')
+      .setStyle(draft.useAi ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`pub_btn_reai_${draft.id}`)
+      .setLabel('🔄 Re-sublimer avec l\'IA')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`pub_btn_edit_${draft.id}`)
+      .setLabel('✏️ Modifier manuellement')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  // Ligne 5 : Actions finales (Diffusion / Annulation)
   const actionRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`pub_btn_broadcast_${draft.id}`)
       .setLabel('🚀 Diffuser Maintenant')
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
-      .setCustomId(`pub_btn_edit_${draft.id}`)
-      .setLabel('✏️ Modifier')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
       .setCustomId(`pub_btn_cancel_${draft.id}`)
       .setLabel('🗑️ Annuler')
       .setStyle(ButtonStyle.Danger)
   );
 
-  return [themeRow, targetRow, mentionRow, actionRow];
+  return [themeRow, targetRow, mentionRow, aiRow, actionRow];
 }
 
 /**
  * Construit le message de prévisualisation complet
  */
 function buildPreviewMessage(draft) {
-  const embed = buildAnnouncementEmbed(draft);
+  const embeds = buildAnnouncementEmbeds(draft);
   const mentionPreview = getMentionText(draft);
   const targetLabel = getTargetLabel(draft);
 
+  const partsCount = embeds.length > 1 ? ` *(Message divisé en ${embeds.length} parties pour Discord)*` : '';
+  const aiModeStatus = draft.useAi ? '✨ **Sublimé par l\'IA** (mise en page moderne)' : '📄 **Texte d\'origine** (brut)';
+
   const header = `### 👁️ APERÇU DE VOTRE ANNONCE AVA STUDIO\n` +
-                 `📍 **Destination :** ${targetLabel}\n` +
+                 `📍 **Destination :** ${targetLabel}${partsCount}\n` +
                  `🔔 **Mention :** ${mentionPreview.trim() || '*Aucune (diffusion silencieuse)*'}\n` +
+                 `🎨 **Style :** ${aiModeStatus}\n` +
                  `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
+  // Discord autorise jusqu'à 10 embeds par message
   return {
     content: `${header}\n${mentionPreview}`,
-    embeds: [embed],
+    embeds: embeds.slice(0, 10),
     components: buildPreviewComponents(draft)
   };
+}
+
+/**
+ * Configure ou met à jour le panneau de contrôle permanent dans #pub
+ */
+async function setupPubPanelChannel(client) {
+  try {
+    const channel = await client.channels.fetch(CHANNEL_PUB_ID).catch(() => null);
+    if (!channel || !channel.isTextBased()) return;
+
+    // Purger les anciens panneaux du bot
+    const messages = await channel.messages.fetch({ limit: 30 }).catch(() => null);
+    if (messages) {
+      const oldPanels = messages.filter(m =>
+        m.author.id === client.user.id &&
+        m.embeds.length > 0 &&
+        m.embeds[0]?.title?.includes('AVA Broadcast Studio')
+      );
+      for (const [, oldMsg] of oldPanels) {
+        await oldMsg.delete().catch(() => {});
+      }
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor(0x8A2BE2) // Violet élégant
+      .setTitle('📢 AVA Broadcast Studio — Diffusion d\'Annonces & Posts')
+      .setDescription(
+        `Bienvenue dans le **Centre de Diffusion Officiel** d'AVA Agency.\n` +
+        `Depuis cet espace, vous pouvez créer, styliser et propulser des annonces percutantes vers l'ensemble de vos équipes.\n\n` +
+        `✨ **Comment créer un post ?**\n` +
+        `• **Option 1 (Direct dans ce salon) :** Écrivez ou collez simplement votre texte (sans limite de longueur, même de très longs guides ou SOPs) ou déposez un fichier \`.txt\` ou une image.\n` +
+        `• **Option 2 (Formulaire interactif) :** Cliquez sur **📝 Créer une Annonce** ci-dessous.\n\n` +
+        `🤖 **Mise en forme intelligente par l'IA :**\n` +
+        `L'IA (Gemini 3.5 Flash) prend automatiquement en charge la restructuration de vos textes bruts : titres élégants, étapes claires, gras percutant, listes aérées et emojis adaptés.\n\n` +
+        `🎯 **Fonctionnalités disponibles :**\n` +
+        `• **Prise en charge intégrale des longs textes :** Aucune coupure, découpage automatique en multi-embeds si nécessaire.\n` +
+        `• **5 Thèmes visuels :** Info, Succès/Primes, Rappels, Urgent, Direction.\n` +
+        `• **Ciblage par pôle :** Annonce générale, VAs (salons d'équipe ou individuels), Chatters, ou sur-mesure.\n` +
+        `• **Mentions ciblées :** Sans ping, \`@everyone\`, \`@here\`, ou mentions par rôle spécifique.\n\n` +
+        `*Prêt à communiquer ? Utilisez les commandes interactives ci-dessous :*`
+      )
+      .setFooter({ text: 'AVA Agency • Studio de Communication Interne' })
+      .setTimestamp();
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('pub_btn_create_modal')
+        .setLabel('📝 Créer une Annonce')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('pub_btn_templates')
+        .setLabel('⚡ Modèles Express')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId('pub_btn_refresh_panel')
+        .setLabel('🔄 Actualiser le Studio')
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+    await channel.send({ embeds: [embed], components: [row] });
+    console.log('✅ Panneau AVA Broadcast Studio initialisé dans #pub');
+  } catch (err) {
+    console.error('❌ Erreur setupPubPanelChannel:', err.message);
+  }
 }
 
 /**
@@ -387,24 +471,48 @@ async function handlePubMessageDrop(message, client) {
   if (message.author.bot) return;
   if (message.channelId !== CHANNEL_PUB_ID) return;
 
-  const content = message.content ? message.content.trim() : '';
-  const firstAttachment = message.attachments.first();
-  const imageUrl = firstAttachment && (firstAttachment.contentType?.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(firstAttachment.name))
-    ? firstAttachment.url
-    : null;
+  let rawContent = message.content ? message.content.trim() : '';
+  let imageUrl = null;
 
-  if (!content && !imageUrl) return;
+  // Vérifier les pièces jointes (fichiers texte ou images)
+  if (message.attachments && message.attachments.size > 0) {
+    for (const [, att] of message.attachments) {
+      if (att.name.endsWith('.txt')) {
+        try {
+          const res = await axios.get(att.url, { responseType: 'text' });
+          if (res.data) {
+            rawContent = (rawContent ? rawContent + '\n\n' : '') + res.data;
+          }
+        } catch (e) {
+          console.warn('⚠️ Échec lecture fichier txt joint:', e.message);
+        }
+      } else if (att.contentType?.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(att.name)) {
+        imageUrl = att.url;
+      }
+    }
+  }
 
-  // Créer un titre automatique (première ligne ou défaut)
-  const lines = content.split('\n').map(l => l.trim()).filter(Boolean);
-  let title = 'COMMUNIQUÉ OFFICIEL';
-  let bodyContent = content;
+  if (!rawContent && !imageUrl) return;
 
-  if (lines.length > 1 && lines[0].length <= 80) {
-    title = lines[0].replace(/^[#* \-_]+|[#* \-_]+$/g, '');
-    bodyContent = lines.slice(1).join('\n');
-  } else if (lines.length === 1 && lines[0].length <= 50) {
-    title = lines[0];
+  // Supprimer le message d'origine du salon pour garder #pub propre
+  try {
+    await message.delete();
+  } catch (e) {}
+
+  // Message temporaire pour signaler l'optimisation IA
+  const loadingMsg = await message.channel.send({
+    content: `⏳ **Analyse et mise en forme de votre post par l'IA en cours...** (Veuillez patienter 2 secondes)`
+  });
+
+  // Déduire un titre automatique ou laisser l'IA le générer
+  const lines = rawContent.split('\n').map(l => l.trim()).filter(Boolean);
+  let titleHint = (lines.length > 0 && lines[0].length <= 80) ? lines[0].replace(/^[#* \-_]+|[#* \-_]+$/g, '') : 'COMMUNIQUÉ OFFICIEL';
+
+  let aiResult = null;
+  try {
+    aiResult = await formatAnnouncementWithAI(rawContent, titleHint);
+  } catch (aiErr) {
+    console.warn('⚠️ Échec optimisation IA annonce:', aiErr.message);
   }
 
   const draftId = `pub_${Date.now()}_${message.author.id}`;
@@ -413,9 +521,11 @@ async function handlePubMessageDrop(message, client) {
     authorId: message.author.id,
     authorTag: message.author.tag || message.author.username,
     authorAvatar: message.author.displayAvatarURL(),
-    title,
-    badge: 'COMMUNICATION INTERNE',
-    content: bodyContent || content || '*(Aucun texte fourni)*',
+    title: aiResult ? aiResult.title : titleHint,
+    badge: aiResult ? aiResult.badge : 'COMMUNICATION INTERNE',
+    rawContent: rawContent,
+    aiContent: aiResult ? aiResult.content : rawContent,
+    useAi: Boolean(aiResult),
     imageUrl,
     theme: 'info',
     targetPreset: 'annonce_general',
@@ -427,14 +537,9 @@ async function handlePubMessageDrop(message, client) {
 
   pubDrafts.set(draftId, draft);
 
-  // Supprimer le message d'origine pour que le salon reste propre
-  try {
-    await message.delete();
-  } catch (e) {}
-
-  // Envoyer le message de prévisualisation interactif
+  // Mettre à jour avec l'aperçu interactif
   const preview = buildPreviewMessage(draft);
-  await message.channel.send(preview);
+  await loadingMsg.edit(preview);
 }
 
 /**
@@ -511,7 +616,7 @@ async function resolveTargetChannels(draft, guild) {
   }
 
   else if (draft.targetPreset === 'custom') {
-    for (const chId of draft.customChannelIds) {
+    for (const chId of (draft.customChannelIds || [])) {
       const ch = guild.channels.cache.get(chId);
       if (ch && ch.isTextBased()) channels.push(ch);
     }
@@ -553,9 +658,9 @@ async function handlePubInteraction(interaction, client) {
     const contentInput = new TextInputBuilder()
       .setCustomId('pub_input_content')
       .setLabel('Contenu du Message (Markdown supporté)')
-      .setPlaceholder('Rédigez votre annonce ici... Supporte le gras, les puces, les sauts de ligne...')
+      .setPlaceholder('Rédigez ou collez votre texte ici... L\'IA se chargera de le sublimer ! (max 4000 car.)')
       .setStyle(TextInputStyle.Paragraph)
-      .setMaxLength(3000)
+      .setMaxLength(4000)
       .setRequired(true);
 
     const imageInput = new TextInputBuilder()
@@ -629,7 +734,9 @@ async function handlePubInteraction(interaction, client) {
       authorAvatar: interaction.user.displayAvatarURL(),
       title: tmpl.title,
       badge: tmpl.badge,
-      content: tmpl.content,
+      rawContent: tmpl.content,
+      aiContent: tmpl.content,
+      useAi: true,
       imageUrl: null,
       theme: tmpl.theme,
       targetPreset: 'annonce_general',
@@ -659,10 +766,19 @@ async function handlePubInteraction(interaction, client) {
 
   // 5. Soumission de la modale de création
   if (id === 'pub_modal_create_submit') {
+    await interaction.deferReply();
+
     const title = interaction.fields.getTextInputValue('pub_input_title');
     const badge = interaction.fields.getTextInputValue('pub_input_badge') || 'COMMUNICATION INTERNE';
-    const content = interaction.fields.getTextInputValue('pub_input_content');
+    const rawContent = interaction.fields.getTextInputValue('pub_input_content');
     const imageUrl = interaction.fields.getTextInputValue('pub_input_image') || null;
+
+    let aiResult = null;
+    try {
+      aiResult = await formatAnnouncementWithAI(rawContent, title);
+    } catch (aiErr) {
+      console.warn('⚠️ Échec optimisation IA modale:', aiErr.message);
+    }
 
     const draftId = `pub_${Date.now()}_${interaction.user.id}`;
     const draft = {
@@ -670,9 +786,11 @@ async function handlePubInteraction(interaction, client) {
       authorId: interaction.user.id,
       authorTag: interaction.user.tag || interaction.user.username,
       authorAvatar: interaction.user.displayAvatarURL(),
-      title,
-      badge,
-      content,
+      title: aiResult ? aiResult.title : title,
+      badge: aiResult ? aiResult.badge : badge,
+      rawContent,
+      aiContent: aiResult ? aiResult.content : rawContent,
+      useAi: Boolean(aiResult),
       imageUrl,
       theme: 'info',
       targetPreset: 'annonce_general',
@@ -685,8 +803,7 @@ async function handlePubInteraction(interaction, client) {
     pubDrafts.set(draftId, draft);
 
     const preview = buildPreviewMessage(draft);
-    await interaction.reply(preview);
-    return;
+    return interaction.editReply(preview);
   }
 
   // 6. Changement de Thème (pub_theme_THEME_DRAFTID)
@@ -703,7 +820,42 @@ async function handlePubInteraction(interaction, client) {
     return interaction.update(preview);
   }
 
-  // 7. Changement de Cible (pub_select_target_DRAFTID)
+  // 7. Basculer entre Version IA et Version d'origine (pub_toggle_ai_DRAFTID)
+  if (id.startsWith('pub_toggle_ai_')) {
+    const draftId = id.replace('pub_toggle_ai_', '');
+    const draft = pubDrafts.get(draftId);
+    if (!draft) return interaction.reply({ content: 'Brouillon introuvable ou expiré.', ephemeral: true });
+
+    draft.useAi = !draft.useAi;
+    const preview = buildPreviewMessage(draft);
+    return interaction.update(preview);
+  }
+
+  // 8. Re-sublimer avec l'IA (pub_btn_reai_DRAFTID)
+  if (id.startsWith('pub_btn_reai_')) {
+    const draftId = id.replace('pub_btn_reai_', '');
+    const draft = pubDrafts.get(draftId);
+    if (!draft) return interaction.reply({ content: 'Brouillon introuvable ou expiré.', ephemeral: true });
+
+    await interaction.deferUpdate();
+
+    try {
+      const aiResult = await formatAnnouncementWithAI(draft.rawContent, draft.title);
+      if (aiResult) {
+        draft.title = aiResult.title;
+        draft.badge = aiResult.badge;
+        draft.aiContent = aiResult.content;
+        draft.useAi = true;
+      }
+    } catch (aiErr) {
+      console.warn('⚠️ Échec ré-optimisation IA:', aiErr.message);
+    }
+
+    const preview = buildPreviewMessage(draft);
+    return interaction.editReply(preview);
+  }
+
+  // 9. Changement de Cible (pub_select_target_DRAFTID)
   if (id.startsWith('pub_select_target_')) {
     const draftId = id.replace('pub_select_target_', '');
     const draft = pubDrafts.get(draftId);
@@ -713,7 +865,6 @@ async function handlePubInteraction(interaction, client) {
     draft.targetPreset = selectedPreset;
 
     if (selectedPreset === 'custom') {
-      // Afficher le menu de sélection des salons spécifiques
       const channelSelect = new ChannelSelectMenuBuilder()
         .setCustomId(`pub_select_custom_channels_${draft.id}`)
         .setPlaceholder('👉 Cliquez ici pour choisir les salons de destination...')
@@ -735,7 +886,7 @@ async function handlePubInteraction(interaction, client) {
     return interaction.update(preview);
   }
 
-  // 8. Sélection des salons personnalisés (pub_select_custom_channels_DRAFTID)
+  // 10. Sélection des salons personnalisés (pub_select_custom_channels_DRAFTID)
   if (id.startsWith('pub_select_custom_channels_')) {
     const draftId = id.replace('pub_select_custom_channels_', '');
     const draft = pubDrafts.get(draftId);
@@ -749,7 +900,6 @@ async function handlePubInteraction(interaction, client) {
       components: []
     });
 
-    // Mettre à jour le message d'aperçu principal
     try {
       const messages = await interaction.channel.messages.fetch({ limit: 10 });
       const previewMsg = messages.find(m => m.components.some(row => row.components.some(btn => btn.customId && btn.customId.includes(draftId))));
@@ -760,7 +910,7 @@ async function handlePubInteraction(interaction, client) {
     return;
   }
 
-  // 9. Mentions rapides (pub_mention_none, pub_mention_everyone, pub_mention_here)
+  // 11. Mentions rapides (pub_mention_none, pub_mention_everyone, pub_mention_here)
   if (id.startsWith('pub_mention_none_')) {
     const draftId = id.replace('pub_mention_none_', '');
     const draft = pubDrafts.get(draftId);
@@ -791,7 +941,7 @@ async function handlePubInteraction(interaction, client) {
     return interaction.update(buildPreviewMessage(draft));
   }
 
-  // 10. Menu déroulant pour choisir un rôle spécifique
+  // 12. Menu déroulant pour choisir un rôle spécifique
   if (id.startsWith('pub_open_role_menu_')) {
     const draftId = id.replace('pub_open_role_menu_', '');
     const draft = pubDrafts.get(draftId);
@@ -811,7 +961,7 @@ async function handlePubInteraction(interaction, client) {
     });
   }
 
-  // 11. Sauvegarde du rôle sélectionné
+  // 13. Sauvegarde du rôle sélectionné
   if (id.startsWith('pub_select_role_')) {
     const draftId = id.replace('pub_select_role_', '');
     const draft = pubDrafts.get(draftId);
@@ -826,7 +976,6 @@ async function handlePubInteraction(interaction, client) {
       components: []
     });
 
-    // Mettre à jour l'aperçu
     try {
       const messages = await interaction.channel.messages.fetch({ limit: 10 });
       const previewMsg = messages.find(m => m.components.some(row => row.components.some(btn => btn.customId && btn.customId.includes(draftId))));
@@ -837,7 +986,7 @@ async function handlePubInteraction(interaction, client) {
     return;
   }
 
-  // 12. Annuler le brouillon
+  // 14. Annuler le brouillon
   if (id.startsWith('pub_btn_cancel_')) {
     const draftId = id.replace('pub_btn_cancel_', '');
     pubDrafts.delete(draftId);
@@ -848,7 +997,7 @@ async function handlePubInteraction(interaction, client) {
     });
   }
 
-  // 13. Modifier le texte du brouillon
+  // 15. Modifier manuellement le texte du brouillon
   if (id.startsWith('pub_btn_edit_')) {
     const draftId = id.replace('pub_btn_edit_', '');
     const draft = pubDrafts.get(draftId);
@@ -861,22 +1010,24 @@ async function handlePubInteraction(interaction, client) {
     const titleInput = new TextInputBuilder()
       .setCustomId('pub_input_title')
       .setLabel('Titre de l\'Annonce')
-      .setValue(draft.title)
+      .setValue(draft.title.slice(0, 100))
       .setStyle(TextInputStyle.Short)
       .setRequired(true);
 
     const badgeInput = new TextInputBuilder()
       .setCustomId('pub_input_badge')
       .setLabel('Badge / Sous-titre')
-      .setValue(draft.badge || '')
+      .setValue((draft.badge || '').slice(0, 50))
       .setStyle(TextInputStyle.Short)
       .setRequired(false);
 
+    const currentText = draft.useAi ? draft.aiContent : draft.rawContent;
     const contentInput = new TextInputBuilder()
       .setCustomId('pub_input_content')
-      .setLabel('Contenu du Message')
-      .setValue(draft.content)
+      .setLabel('Contenu du Message (max 4000 car.)')
+      .setValue(currentText.slice(0, 4000))
       .setStyle(TextInputStyle.Paragraph)
+      .setMaxLength(4000)
       .setRequired(true);
 
     const imageInput = new TextInputBuilder()
@@ -896,7 +1047,7 @@ async function handlePubInteraction(interaction, client) {
     return interaction.showModal(modal);
   }
 
-  // 14. Validation de la modification du brouillon
+  // 16. Validation de la modification du brouillon
   if (id.startsWith('pub_modal_edit_submit_')) {
     const draftId = id.replace('pub_modal_edit_submit_', '');
     const draft = pubDrafts.get(draftId);
@@ -904,14 +1055,17 @@ async function handlePubInteraction(interaction, client) {
 
     draft.title = interaction.fields.getTextInputValue('pub_input_title');
     draft.badge = interaction.fields.getTextInputValue('pub_input_badge') || 'COMMUNICATION INTERNE';
-    draft.content = interaction.fields.getTextInputValue('pub_input_content');
+    const newContent = interaction.fields.getTextInputValue('pub_input_content');
+    draft.rawContent = newContent;
+    draft.aiContent = newContent;
+    draft.useAi = false; // Mode manuel
     draft.imageUrl = interaction.fields.getTextInputValue('pub_input_image') || null;
 
     const preview = buildPreviewMessage(draft);
     return interaction.update(preview);
   }
 
-  // 15. Lancement de la diffusion (pub_btn_broadcast_DRAFTID)
+  // 17. Lancement de la diffusion intégrale (pub_btn_broadcast_DRAFTID)
   if (id.startsWith('pub_btn_broadcast_')) {
     const draftId = id.replace('pub_btn_broadcast_', '');
     const draft = pubDrafts.get(draftId);
@@ -929,17 +1083,23 @@ async function handlePubInteraction(interaction, client) {
       });
     }
 
-    const embed = buildAnnouncementEmbed(draft);
+    const embeds = buildAnnouncementEmbeds(draft);
     const mentionText = getMentionText(draft);
     const successList = [];
     const errorList = [];
 
     for (const channel of targetChannels) {
       try {
-        await channel.send({
-          content: mentionText ? mentionText.trim() : undefined,
-          embeds: [embed]
-        });
+        // Envoi avec découpage en lots de 10 embeds maximum par message Discord
+        for (let i = 0; i < embeds.length; i += 10) {
+          const batch = embeds.slice(i, i + 10);
+          const isFirstBatch = i === 0;
+
+          await channel.send({
+            content: (isFirstBatch && mentionText) ? mentionText.trim() : undefined,
+            embeds: batch
+          });
+        }
         successList.push(`<#${channel.id}>`);
       } catch (err) {
         console.error(`❌ Échec envoi dans #${channel.name}:`, err.message);
@@ -954,7 +1114,8 @@ async function handlePubInteraction(interaction, client) {
       .setColor(0x2ecc71)
       .setTitle('🚀 Annonce Diffusée avec Succès !')
       .setDescription(
-        `Votre annonce **« ${draft.title} »** a été expédiée avec succès dans **${successList.length} salon(s)** !\n\n` +
+        `Votre annonce **« ${draft.title} »** a été expédiée avec succès dans **${successList.length} salon(s)** !\n` +
+        (embeds.length > 1 ? `📄 *Message volumineux transmis intégralement en ${embeds.length} parties sans coupure.*\n\n` : '\n') +
         `**Salons touchés :**\n${successList.join(', ')}\n\n` +
         (errorList.length > 0 ? `⚠️ **Échecs d'envoi (${errorList.length}) :**\n${errorList.join('\n')}\n\n` : '') +
         `*Le studio est prêt pour votre prochaine annonce.*`
@@ -975,5 +1136,6 @@ module.exports = {
   setupPubPanelChannel,
   handlePubMessageDrop,
   handlePubInteraction,
-  buildAnnouncementEmbed
+  buildAnnouncementEmbeds,
+  splitContentIntoChunks
 };
