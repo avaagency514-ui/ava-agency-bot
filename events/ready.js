@@ -6,6 +6,7 @@ const { setupPushPanelChannel } = require('../services/pushService');
 const { setupTwitterContentFactory } = require('../handlers/twitterContentFactory');
 const { renameAllExistingTickets } = require('../services/ticketRenamer');
 const { catchupUnprocessedReels } = require('../services/reelExtractor');
+const { setupPubPanelChannel } = require('../services/pubService');
 
 module.exports = {
   name: Events.ClientReady,
@@ -33,6 +34,7 @@ module.exports = {
       initMonthlyRecurringExpenses();
       await setupComptaChannel(client);
       await setupPushPanelChannel(client);
+      await setupPubPanelChannel(client);
     } catch (err) {
       console.error('❌ Erreur initialisation Chatters :', err);
     }

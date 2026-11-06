@@ -18,6 +18,10 @@ const {
   CHANNEL_REEL_SCRAPPER_ID,
   processReelScrapperMessage
 } = require('../services/reelExtractor');
+const {
+  CHANNEL_PUB_ID,
+  handlePubMessageDrop
+} = require('../services/pubService');
 
 module.exports = {
   name: Events.MessageCreate,
@@ -26,6 +30,11 @@ module.exports = {
   async execute(message, client) {
     // Ignorer les bots
     if (message.author.bot) return;
+
+    // Détection des créations d'annonces dans le salon #pub
+    if (message.channelId === CHANNEL_PUB_ID) {
+      return await handlePubMessageDrop(message, client);
+    }
 
     // Détection des Reels dans le salon #reel-scrapper
     if (message.channelId === CHANNEL_REEL_SCRAPPER_ID) {

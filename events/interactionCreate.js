@@ -30,6 +30,12 @@ module.exports = {
       return;
     }
 
+    // ─── AVA Broadcast Studio (#pub) ────────────────────────────
+    if (interaction.customId && interaction.customId.startsWith('pub_')) {
+      const { handlePubInteraction } = require('../services/pubService');
+      return handlePubInteraction(interaction, client);
+    }
+
     // ─── Sélecteurs (Menus) ──────────────────────────────────────
     if (interaction.isStringSelectMenu()) {
       const id = interaction.customId;

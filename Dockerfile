@@ -24,7 +24,7 @@ COPY package*.json ./
 RUN npm install
 
 # Cache bust - force rebuild of code layer
-ARG CACHEBUST=12
+ARG CACHEBUST=13
 # Copy all source code
 COPY . .
 
