@@ -18,7 +18,8 @@ const {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-  ChannelType
+  ChannelType,
+  AttachmentBuilder
 } = require('discord.js');
 
 const axios = require('axios');
@@ -168,11 +169,58 @@ function isVideoUrl(url) {
          clean.endsWith('.webm') ||
          clean.endsWith('.avi') ||
          clean.endsWith('.mkv') ||
+         clean.endsWith('.m4v') ||
          url.includes('youtube.com') ||
          url.includes('youtu.be') ||
          url.includes('loom.com') ||
          url.includes('streamable.com') ||
          url.includes('files.catbox.moe');
+}
+
+/**
+ * Détecte si une URL pointe directement vers un fichier vidéo supporté en attachement natif Discord
+ */
+function isDirectVideoFile(url) {
+  if (!url || typeof url !== 'string') return false;
+  const clean = url.split('?')[0].toLowerCase();
+  return clean.endsWith('.mp4') ||
+         clean.endsWith('.mov') ||
+         clean.endsWith('.webm') ||
+         clean.endsWith('.avi') ||
+         clean.endsWith('.m4v') ||
+         url.includes('catbox.moe') ||
+         url.includes('cdn.discordapp.com') ||
+         url.includes('media.discordapp.net');
+}
+
+/**
+ * Télécharge le buffer vidéo en mémoire (25 Mo max pour l'upload Discord bot)
+ */
+async function fetchVideoBuffer(url) {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    const res = await axios.get(url, {
+      responseType: 'arraybuffer',
+      timeout: 25000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      },
+      maxContentLength: 25 * 1024 * 1024 // 25 MB max (limite Discord Bot)
+    });
+    if (res.data) {
+      let ext = 'mp4';
+      const cleanUrl = url.split('?')[0].toLowerCase();
+      const m = cleanUrl.match(/\.(mp4|mov|webm|m4v)/i);
+      if (m) ext = m[1].toLowerCase();
+      return {
+        buffer: Buffer.from(res.data),
+        fileName: `video_demonstration.${ext}`
+      };
+    }
+  } catch (err) {
+    console.warn(`[PUB] Préchargement vidéo impossible (${err.message}) pour ${url}`);
+  }
+  return null;
 }
 
 /**
@@ -537,6 +585,24 @@ function buildPreviewMessage(draft) {
 }
 
 /**
+ * Construit le payload d'affichage pour la prévisualisation.
+ * Si de nouveaux fichiers sont passés (ex: création de brouillon avec vidéo), ils sont attachés.
+ * Si le message ou l'interaction possède déjà des pièces jointes, elles sont conservées
+ * pour que le lecteur vidéo Discord natif reste actif et interactif sans re-téléchargement.
+ */
+function getPreviewPayload(draft, interactionOrMessage = null, newFiles = null) {
+  const base = buildPreviewMessage(draft);
+  if (newFiles && newFiles.length > 0) {
+    return { ...base, files: newFiles };
+  }
+  const existingAttachments = interactionOrMessage?.message?.attachments || interactionOrMessage?.attachments;
+  if (existingAttachments && existingAttachments.size > 0) {
+    return { ...base, attachments: Array.from(existingAttachments.values()) };
+  }
+  return base;
+}
+
+/**
  * Configure ou met à jour le panneau de contrôle permanent dans #pub
  */
 async function setupPubPanelChannel(client) {
@@ -630,6 +696,12 @@ async function handlePubMessageDrop(message, client) {
 
   if (!rawContent && !mediaUrl) return;
 
+  // Si c'est une vidéo directe (.mp4, catbox, attachment Discord), pré-charger le buffer avant de supprimer le message
+  let videoData = null;
+  if (mediaUrl && isDirectVideoFile(mediaUrl)) {
+    videoData = await fetchVideoBuffer(mediaUrl);
+  }
+
   // Supprimer le message d'origine du salon pour garder #pub propre
   try {
     await message.delete();
@@ -664,6 +736,8 @@ async function handlePubMessageDrop(message, client) {
     useAi: Boolean(aiResult),
     mediaUrl,
     imageUrl: (mediaUrl && !isVideoUrl(mediaUrl)) ? mediaUrl : null,
+    videoBuffer: videoData ? videoData.buffer : null,
+    videoFileName: videoData ? videoData.fileName : 'video_demonstration.mp4',
     theme: 'info',
     targetMode: 'preset',
     channelIds: [CHANNEL_ANNONCE_GENERAL_ID],
@@ -677,9 +751,16 @@ async function handlePubMessageDrop(message, client) {
 
   pubDrafts.set(draftId, draft);
 
-  // Mettre à jour avec l'aperçu interactif
-  const preview = buildPreviewMessage(draft);
-  await loadingMsg.edit(preview);
+  // Mettre à jour avec l'aperçu interactif et la vidéo attachée directement
+  let initialFiles = [];
+  if (draft.videoBuffer) {
+    initialFiles.push(new AttachmentBuilder(draft.videoBuffer, { name: draft.videoFileName }));
+  } else if (mediaUrl && isDirectVideoFile(mediaUrl)) {
+    initialFiles.push(new AttachmentBuilder(mediaUrl, { name: 'video_demonstration.mp4' }));
+  }
+
+  const payload = getPreviewPayload(draft, null, initialFiles);
+  await loadingMsg.edit(payload);
 }
 
 /**
@@ -976,6 +1057,11 @@ async function handlePubInteraction(interaction, client) {
       mediaUrl = extractMediaFromTextOrAttachments(rawContent, null);
     }
 
+    let videoData = null;
+    if (mediaUrl && isDirectVideoFile(mediaUrl)) {
+      videoData = await fetchVideoBuffer(mediaUrl);
+    }
+
     let aiResult = null;
     try {
       aiResult = await formatAnnouncementWithAI(rawContent, title);
@@ -996,6 +1082,8 @@ async function handlePubInteraction(interaction, client) {
       useAi: Boolean(aiResult),
       mediaUrl,
       imageUrl: (mediaUrl && !isVideoUrl(mediaUrl)) ? mediaUrl : null,
+      videoBuffer: videoData ? videoData.buffer : null,
+      videoFileName: videoData ? videoData.fileName : 'video_demonstration.mp4',
       theme: 'info',
       targetMode: 'preset',
       channelIds: [CHANNEL_ANNONCE_GENERAL_ID],
@@ -1009,8 +1097,15 @@ async function handlePubInteraction(interaction, client) {
 
     pubDrafts.set(draftId, draft);
 
-    const preview = buildPreviewMessage(draft);
-    return interaction.editReply(preview);
+    let initialFiles = [];
+    if (draft.videoBuffer) {
+      initialFiles.push(new AttachmentBuilder(draft.videoBuffer, { name: draft.videoFileName }));
+    } else if (mediaUrl && isDirectVideoFile(mediaUrl)) {
+      initialFiles.push(new AttachmentBuilder(mediaUrl, { name: 'video_demonstration.mp4' }));
+    }
+
+    const payload = getPreviewPayload(draft, null, initialFiles);
+    return interaction.editReply(payload);
   }
 
   // 6. Changement de Thème (pub_theme_THEME_DRAFTID)
@@ -1023,7 +1118,7 @@ async function handlePubInteraction(interaction, client) {
     if (!draft) return interaction.reply({ content: 'Brouillon introuvable ou expiré.', ephemeral: true });
 
     draft.theme = themeName;
-    const preview = buildPreviewMessage(draft);
+    const preview = getPreviewPayload(draft, interaction);
     return interaction.update(preview);
   }
 
@@ -1034,7 +1129,7 @@ async function handlePubInteraction(interaction, client) {
     if (!draft) return interaction.reply({ content: 'Brouillon introuvable ou expiré.', ephemeral: true });
 
     draft.useAi = !draft.useAi;
-    const preview = buildPreviewMessage(draft);
+    const preview = getPreviewPayload(draft, interaction);
     return interaction.update(preview);
   }
 
@@ -1058,7 +1153,7 @@ async function handlePubInteraction(interaction, client) {
       console.warn('⚠️ Échec ré-optimisation IA:', aiErr.message);
     }
 
-    const preview = buildPreviewMessage(draft);
+    const preview = getPreviewPayload(draft, interaction);
     return interaction.editReply(preview);
   }
 
@@ -1125,7 +1220,7 @@ async function handlePubInteraction(interaction, client) {
     draft.targetMode = 'preset';
     draft.targetPreset = val;
     draft.targetRoleId = null;
-    const preview = buildPreviewMessage(draft);
+    const preview = getPreviewPayload(draft, interaction);
     return interaction.update(preview);
   }
 
@@ -1170,7 +1265,7 @@ async function handlePubInteraction(interaction, client) {
       const messages = await interaction.channel.messages.fetch({ limit: 10 });
       const previewMsg = messages.find(m => m.components.some(row => row.components.some(btn => btn.customId && btn.customId.includes(draftId))));
       if (previewMsg) {
-        await previewMsg.edit(buildPreviewMessage(draft));
+        await previewMsg.edit(getPreviewPayload(draft, previewMsg));
       }
     } catch (e) {}
     return;
@@ -1227,7 +1322,7 @@ async function handlePubInteraction(interaction, client) {
       const messages = await interaction.channel.messages.fetch({ limit: 10 });
       const previewMsg = messages.find(m => m.components.some(row => row.components.some(btn => btn.customId && btn.customId.includes(draftId))));
       if (previewMsg) {
-        await previewMsg.edit(buildPreviewMessage(draft));
+        await previewMsg.edit(getPreviewPayload(draft, previewMsg));
       }
     } catch (e) {}
     return;
@@ -1253,7 +1348,7 @@ async function handlePubInteraction(interaction, client) {
       const messages = await interaction.channel.messages.fetch({ limit: 10 });
       const previewMsg = messages.find(m => m.components.some(row => row.components.some(btn => btn.customId && btn.customId.includes(draftId))));
       if (previewMsg) {
-        await previewMsg.edit(buildPreviewMessage(draft));
+        await previewMsg.edit(getPreviewPayload(draft, previewMsg));
       }
     } catch (e) {}
     return;
@@ -1269,7 +1364,7 @@ async function handlePubInteraction(interaction, client) {
     draft.channelIds = interaction.values;
     draft.customChannelIds = interaction.values;
     draft.targetRoleId = null;
-    const preview = buildPreviewMessage(draft);
+    const preview = getPreviewPayload(draft, interaction);
     return interaction.update(preview);
   }
 
@@ -1283,7 +1378,7 @@ async function handlePubInteraction(interaction, client) {
     draft.targetPreset = 'annonce_general';
     draft.channelIds = [CHANNEL_ANNONCE_GENERAL_ID];
     draft.targetRoleId = null;
-    const preview = buildPreviewMessage(draft);
+    const preview = getPreviewPayload(draft, interaction);
     return interaction.update(preview);
   }
 
@@ -1295,7 +1390,7 @@ async function handlePubInteraction(interaction, client) {
     draft.targetMode = 'preset';
     draft.targetPreset = 'all_vas_team';
     draft.targetRoleId = null;
-    const preview = buildPreviewMessage(draft);
+    const preview = getPreviewPayload(draft, interaction);
     return interaction.update(preview);
   }
 
@@ -1309,7 +1404,7 @@ async function handlePubInteraction(interaction, client) {
     draft.targetPreset = selectedPreset;
     draft.targetRoleId = null;
 
-    const preview = buildPreviewMessage(draft);
+    const preview = getPreviewPayload(draft, interaction);
     return interaction.update(preview);
   }
 
@@ -1331,7 +1426,7 @@ async function handlePubInteraction(interaction, client) {
       const messages = await interaction.channel.messages.fetch({ limit: 10 });
       const previewMsg = messages.find(m => m.components.some(row => row.components.some(btn => btn.customId && btn.customId.includes(draftId))));
       if (previewMsg) {
-        await previewMsg.edit(buildPreviewMessage(draft));
+        await previewMsg.edit(getPreviewPayload(draft, previewMsg));
       }
     } catch (e) {}
     return;
@@ -1345,7 +1440,7 @@ async function handlePubInteraction(interaction, client) {
 
     draft.mentionType = 'none';
     draft.mentionRoleId = null;
-    return interaction.update(buildPreviewMessage(draft));
+    return interaction.update(getPreviewPayload(draft, interaction));
   }
 
   if (id.startsWith('pub_mention_everyone_')) {
@@ -1355,7 +1450,7 @@ async function handlePubInteraction(interaction, client) {
 
     draft.mentionType = 'everyone';
     draft.mentionRoleId = null;
-    return interaction.update(buildPreviewMessage(draft));
+    return interaction.update(getPreviewPayload(draft, interaction));
   }
 
   if (id.startsWith('pub_mention_here_')) {
@@ -1365,7 +1460,7 @@ async function handlePubInteraction(interaction, client) {
 
     draft.mentionType = 'here';
     draft.mentionRoleId = null;
-    return interaction.update(buildPreviewMessage(draft));
+    return interaction.update(getPreviewPayload(draft, interaction));
   }
 
   // 12. Menu déroulant pour choisir un rôle spécifique
@@ -1407,7 +1502,7 @@ async function handlePubInteraction(interaction, client) {
       const messages = await interaction.channel.messages.fetch({ limit: 10 });
       const previewMsg = messages.find(m => m.components.some(row => row.components.some(btn => btn.customId && btn.customId.includes(draftId))));
       if (previewMsg) {
-        await previewMsg.edit(buildPreviewMessage(draft));
+        await previewMsg.edit(getPreviewPayload(draft, previewMsg));
       }
     } catch (e) {}
     return;
@@ -1491,11 +1586,27 @@ async function handlePubInteraction(interaction, client) {
     if (!mediaUrl) {
       mediaUrl = extractMediaFromTextOrAttachments(newContent, null);
     }
+    const mediaChanged = (draft.mediaUrl !== mediaUrl);
     draft.mediaUrl = mediaUrl;
     draft.imageUrl = (mediaUrl && !isVideoUrl(mediaUrl)) ? mediaUrl : null;
 
-    const preview = buildPreviewMessage(draft);
-    return interaction.update(preview);
+    let newFiles = null;
+    if (mediaChanged) {
+      if (mediaUrl && isDirectVideoFile(mediaUrl)) {
+        const videoData = await fetchVideoBuffer(mediaUrl);
+        draft.videoBuffer = videoData ? videoData.buffer : null;
+        draft.videoFileName = videoData ? videoData.fileName : 'video_demonstration.mp4';
+        newFiles = [draft.videoBuffer
+          ? new AttachmentBuilder(draft.videoBuffer, { name: draft.videoFileName })
+          : new AttachmentBuilder(mediaUrl, { name: 'video_demonstration.mp4' })
+        ];
+      } else {
+        draft.videoBuffer = null;
+      }
+    }
+
+    const payload = getPreviewPayload(draft, interaction, newFiles);
+    return interaction.update(payload);
   }
 
   // 17. Lancement de la diffusion intégrale (pub_btn_broadcast_DRAFTID)
@@ -1524,6 +1635,20 @@ async function handlePubInteraction(interaction, client) {
     const media = draft.mediaUrl || draft.imageUrl;
     const isVideo = isVideoUrl(media);
 
+    // Précharger le buffer vidéo s'il n'est pas déjà présent pour diffusion instantanée
+    let broadcastVideoBuffer = draft.videoBuffer || null;
+    let broadcastVideoFileName = draft.videoFileName || 'video_demonstration.mp4';
+
+    if (!broadcastVideoBuffer && media && isDirectVideoFile(media)) {
+      const vData = await fetchVideoBuffer(media);
+      if (vData) {
+        broadcastVideoBuffer = vData.buffer;
+        broadcastVideoFileName = vData.fileName;
+        draft.videoBuffer = broadcastVideoBuffer;
+        draft.videoFileName = broadcastVideoFileName;
+      }
+    }
+
     for (const channel of targetChannels) {
       try {
         // Envoi avec découpage en lots de 10 embeds maximum par message Discord
@@ -1533,25 +1658,57 @@ async function handlePubInteraction(interaction, client) {
 
           let msgContent = '';
           if (isFirstBatch && mentionText) msgContent += mentionText.trim() + '\n';
-          if (isFirstBatch && media && isVideo) msgContent += `🎥 **Démonstration Vidéo :** ${media}\n`;
 
           const components = [];
           if (isFirstBatch && media && isVideo) {
             components.push(
               new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
-                  .setLabel('▶️ Regarder la Vidéo')
+                  .setLabel('▶️ Regarder en Plein Écran')
                   .setStyle(ButtonStyle.Link)
                   .setURL(media)
               )
             );
           }
 
-          await channel.send({
-            content: msgContent.trim() || undefined,
-            embeds: batch,
-            components: components.length > 0 ? components : undefined
-          });
+          let files = [];
+          if (isFirstBatch && (broadcastVideoBuffer || (media && isDirectVideoFile(media)))) {
+            try {
+              if (broadcastVideoBuffer) {
+                files.push(new AttachmentBuilder(broadcastVideoBuffer, { name: broadcastVideoFileName }));
+              } else {
+                files.push(new AttachmentBuilder(media, { name: broadcastVideoFileName }));
+              }
+            } catch (err) {
+              console.warn('[PUB] Erreur création attachement vidéo:', err.message);
+            }
+          }
+
+          let sentSuccessfully = false;
+          if (files.length > 0) {
+            try {
+              await channel.send({
+                content: msgContent.trim() || undefined,
+                embeds: batch,
+                files: files,
+                components: components.length > 0 ? components : undefined
+              });
+              sentSuccessfully = true;
+            } catch (fileSendErr) {
+              console.warn(`[PUB] Échec envoi fichier vidéo natif dans #${channel.name} (${fileSendErr.message}), envoi de repli sans fichier.`);
+            }
+          }
+
+          if (!sentSuccessfully) {
+            if (isFirstBatch && media && isVideo) {
+              msgContent += `🎥 **Démonstration Vidéo :** ${media}\n`;
+            }
+            await channel.send({
+              content: msgContent.trim() || undefined,
+              embeds: batch,
+              components: components.length > 0 ? components : undefined
+            });
+          }
         }
         successList.push(`<#${channel.id}>`);
       } catch (err) {
