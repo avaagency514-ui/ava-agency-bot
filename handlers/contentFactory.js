@@ -3,6 +3,8 @@ const { getFileForProfile } = require('../services/drive');
 const { processFile } = require('../services/metachanger');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const { execFile } = require('child_process');
 
 const CONTENT_LABELS = {
   reels:        { emoji: '🎬', label: 'Reels', color: 0x00ff88 },
@@ -390,4 +392,260 @@ async function handleFollowRequest(interaction, type, meta, qty = 5) {
   }
 }
 
-module.exports = { handleContentFactory, handleContentSelect, handleFounderSelect };
+// ─────────────────────────────────────────────────────────────────────────────
+// 🎬 GÉNÉRER UN REEL AVEC CAPTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CAPTION_REEL_CHANNEL_ID = process.env.CHANNEL_CAPTION_REEL_ID || '1565272928608583760';
+
+/**
+ * Wraps a text so each line is at most `maxChars` characters.
+ * Returns a string with \n separators suitable for ffmpeg drawtext.
+ */
+function wrapTextForVideo(text, maxChars = 38) {
+  const words = text.split(' ');
+  const lines = [];
+  let current = '';
+  for (const word of words) {
+    if ((current + (current ? ' ' : '') + word).length <= maxChars) {
+      current += (current ? ' ' : '') + word;
+    } else {
+      if (current) lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.join('\n');
+}
+
+/**
+ * Escape single-quotes and special chars for ffmpeg drawtext
+ */
+function escapeFfmpegText(str) {
+  return str
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/:/g, '\\:');
+}
+
+/**
+ * Résout le chemin de ffmpeg dans le projet
+ */
+function getFfmpegPath() {
+  const local = path.join(__dirname, '../multimetachanger/ffmpeg.exe');
+  if (fs.existsSync(local)) return local;
+  return 'ffmpeg'; // fallback PATH
+}
+
+/**
+ * Résout une police disponible (Anton style gras / style TikTok)
+ */
+function getFontPath() {
+  const candidates = [
+    path.join(__dirname, '../assets/fonts/Anton-Regular.ttf'),
+    path.join(__dirname, '../assets/fonts/NotoSans-Bold.ttf'),
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf',
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return null; // ffmpeg utilisera la police par défaut
+}
+
+/**
+ * Injecte une caption dans une vidéo via ffmpeg (style TikTok/Instagram caption)
+ * @param {string} inputPath - Chemin de la vidéo source
+ * @param {string} outputPath - Chemin de sortie
+ * @param {string} captionText - Texte de la caption (peut contenir des \n)
+ * @returns {Promise<void>}
+ */
+function injectCaptionIntoVideo(inputPath, outputPath, captionText) {
+  return new Promise((resolve, reject) => {
+    const ffmpegPath = getFfmpegPath();
+    const fontPath = getFontPath();
+
+    // Wrapping à ~36 chars par ligne
+    const wrapped = wrapTextForVideo(captionText, 36);
+    const escaped = escapeFfmpegText(wrapped);
+
+    // Style : blanc gras, contour noir épais, centré, tiers inférieur (y=h*0.68)
+    let drawtext;
+    if (fontPath) {
+      const escapedFont = fontPath.replace(/\\/g, '/').replace(/:/g, '\\:');
+      drawtext = `drawtext=fontfile='${escapedFont}':text='${escaped}':fontcolor=white:fontsize=52:borderw=5:bordercolor=black:x=(w-text_w)/2:y=(h*0.68-text_h/2):line_spacing=8:fix_bounds=true`;
+    } else {
+      drawtext = `drawtext=text='${escaped}':fontcolor=white:fontsize=52:borderw=5:bordercolor=black:x=(w-text_w)/2:y=(h*0.68-text_h/2):line_spacing=8:fix_bounds=true`;
+    }
+
+    const args = [
+      '-y',
+      '-i', inputPath,
+      '-vf', drawtext,
+      '-c:v', 'libx264',
+      '-crf', '23',
+      '-preset', 'fast',
+      '-c:a', 'copy',
+      '-movflags', '+faststart',
+      outputPath
+    ];
+
+    console.log(`🎬 ffmpeg drawtext : ${drawtext.substring(0, 120)}...`);
+
+    execFile(ffmpegPath, args, { timeout: 120000 }, (err, stdout, stderr) => {
+      if (err) {
+        console.error('❌ ffmpeg stderr:', stderr?.slice(-500));
+        return reject(new Error(`ffmpeg échoué : ${err.message}`));
+      }
+      resolve();
+    });
+  });
+}
+
+/**
+ * Handler principal : bouton "🎬 Générer un Reel (Caption)"
+ */
+async function handleGenerateReel(interaction) {
+  await interaction.deferReply({ ephemeral: true });
+
+  const market = getMarketFromInteraction(interaction);
+
+  // 1. Récupérer la caption depuis #caption-reel
+  let caption = null;
+  try {
+    const captionChannel = await interaction.client.channels.fetch(CAPTION_REEL_CHANNEL_ID).catch(() => null);
+    if (!captionChannel) throw new Error(`Salon #caption-reel (${CAPTION_REEL_CHANNEL_ID}) introuvable.`);
+
+    const msgs = await captionChannel.messages.fetch({ limit: 50 });
+    // Prend un message au hasard parmi les 20 derniers messages non-bot
+    const userMsgs = msgs.filter(m => !m.author.bot && m.content.trim().length > 10).first(20);
+    if (!userMsgs || userMsgs.length === 0) throw new Error('Aucune caption trouvée dans #caption-reel.');
+
+    const randomMsg = userMsgs[Math.floor(Math.random() * userMsgs.length)];
+    caption = randomMsg.content.trim();
+    console.log(`📝 Caption sélectionnée (${caption.length} chars) : ${caption.substring(0, 80)}...`);
+  } catch (err) {
+    return interaction.editReply({
+      embeds: [new EmbedBuilder().setColor(0xff4444).setTitle('❌ Erreur caption').setDescription(err.message)]
+    });
+  }
+
+  // 2. Télécharger une vidéo depuis le Drive (type=reels)
+  let driveData = null;
+  try {
+    // On tente d'abord avec un profile_id aléatoire parmi ceux disponibles
+    const { getAvailableProfiles } = require('../services/drive');
+    const profiles = await getAvailableProfiles();
+    if (!profiles || profiles.length === 0) throw new Error('Aucun profil trouvé dans le Drive.');
+
+    const randomProfile = profiles[Math.floor(Math.random() * profiles.length)];
+    console.log(`📁 Profile Drive sélectionné : ${randomProfile}`);
+
+    driveData = await getFileForProfile('reels', randomProfile, market);
+  } catch (err) {
+    return interaction.editReply({
+      embeds: [new EmbedBuilder().setColor(0xff4444).setTitle('❌ Erreur Drive').setDescription(`Impossible de récupérer une vidéo : ${err.message}`)]
+    });
+  }
+
+  const inputPath = driveData.localPath;
+  const workDir = path.dirname(inputPath);
+  const outputPath = path.join(workDir, `reel_caption_${Date.now()}.mp4`);
+
+  // Afficher un message de progression
+  await interaction.editReply({
+    embeds: [new EmbedBuilder()
+      .setColor(0xffcc00)
+      .setTitle('⏳ Génération en cours...')
+      .setDescription(`📝 Caption récupérée ✅\n📁 Vidéo téléchargée ✅\n🎬 Injection du texte via ffmpeg...\n\n*Cela peut prendre 15-30 secondes.*`)
+    ]
+  });
+
+  // 3. Injecter la caption dans la vidéo
+  try {
+    await injectCaptionIntoVideo(inputPath, outputPath, caption);
+  } catch (err) {
+    if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+    return interaction.editReply({
+      embeds: [new EmbedBuilder().setColor(0xff4444).setTitle('❌ Erreur ffmpeg').setDescription(err.message)]
+    });
+  }
+
+  // 4. Vérifier la taille du fichier (limite Discord : 25Mo sans boost)
+  const MAX_SIZE = 24 * 1024 * 1024; // 24 Mo
+  const fileSize = fs.existsSync(outputPath) ? fs.statSync(outputPath).size : 0;
+
+  try {
+    if (fileSize === 0) {
+      throw new Error('Le fichier de sortie est vide. ffmpeg a peut-être échoué silencieusement.');
+    }
+
+    if (fileSize > MAX_SIZE) {
+      // Comprimer une deuxième fois avec un CRF plus élevé
+      const compressedPath = path.join(workDir, `reel_caption_compressed_${Date.now()}.mp4`);
+      await new Promise((resolve, reject) => {
+        const ffmpegPath = getFfmpegPath();
+        execFile(ffmpegPath, [
+          '-y', '-i', outputPath,
+          '-c:v', 'libx264', '-crf', '30', '-preset', 'fast',
+          '-c:a', 'copy', '-movflags', '+faststart',
+          compressedPath
+        ], { timeout: 120000 }, (err) => {
+          if (err) reject(new Error(`Compression échouée : ${err.message}`));
+          else resolve();
+        });
+      });
+      if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+      // Vérifier à nouveau la taille après compression
+      const newSize = fs.existsSync(compressedPath) ? fs.statSync(compressedPath).size : 0;
+      if (newSize > MAX_SIZE) {
+        // Envoyer juste la caption sans vidéo
+        if (fs.existsSync(compressedPath)) fs.unlinkSync(compressedPath);
+        if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+        return interaction.editReply({
+          embeds: [new EmbedBuilder()
+            .setColor(0xffa500)
+            .setTitle('⚠️ Vidéo trop lourde')
+            .setDescription(`La vidéo dépasse 25 Mo même après compression.\n\n📝 **Caption :**\n\`\`\`\n${caption.slice(0, 1000)}\n\`\`\`\n\nUtilise-la manuellement dans MultiMetaChanger.`)
+          ]
+        });
+      }
+      // Envoyer la vidéo compressée
+      const attachment = new AttachmentBuilder(compressedPath, { name: 'reel_avec_caption.mp4' });
+      await interaction.editReply({
+        embeds: [new EmbedBuilder()
+          .setColor(0x00ff88)
+          .setTitle('🎬 Reel généré !')
+          .setDescription(`✅ Caption injectée avec succès !\n\n📝 **Caption utilisée :**\n> ${caption.slice(0, 300)}${caption.length > 300 ? '...' : ''}`)
+          .setFooter({ text: `Marché : ${market} • Compressé pour Discord` })
+        ],
+        files: [attachment]
+      });
+      if (fs.existsSync(compressedPath)) fs.unlinkSync(compressedPath);
+    } else {
+      // Envoyer directement
+      const attachment = new AttachmentBuilder(outputPath, { name: 'reel_avec_caption.mp4' });
+      await interaction.editReply({
+        embeds: [new EmbedBuilder()
+          .setColor(0x00ff88)
+          .setTitle('🎬 Reel généré !')
+          .setDescription(`✅ Caption injectée avec succès !\n\n📝 **Caption utilisée :**\n> ${caption.slice(0, 300)}${caption.length > 300 ? '...' : ''}`)
+          .setFooter({ text: `Marché : ${market} • ${(fileSize / 1024 / 1024).toFixed(1)} Mo` })
+        ],
+        files: [attachment]
+      });
+      if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+    }
+  } catch (err) {
+    console.error('Erreur envoi reel:', err);
+    await interaction.editReply({
+      embeds: [new EmbedBuilder().setColor(0xff4444).setTitle('❌ Erreur envoi').setDescription(err.message)]
+    });
+  } finally {
+    // Nettoyage
+    if (fs.existsSync(inputPath)) try { fs.unlinkSync(inputPath); } catch (_) {}
+  }
+}
+
+module.exports = { handleContentFactory, handleContentSelect, handleFounderSelect, handleGenerateReel };

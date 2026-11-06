@@ -174,6 +174,14 @@ async function setupContentFactory(client, channelId, marketLabel = '') {
         new ButtonBuilder().setCustomId('content_sms').setLabel('📱 SMS').setStyle(ButtonStyle.Danger),
       );
 
-  await channel.send({ embeds: [embed], components: [row1, row2] });
+  // 🎬 Ligne 3 : Générer un Reel avec caption
+  const row3 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('cf_reel_generate')
+      .setLabel('🎬 Générer un Reel (Caption)')
+      .setStyle(ButtonStyle.Primary),
+  );
+
+  await channel.send({ embeds: [embed], components: [row1, row2, row3] });
   console.log(`✅ Content Factory publié dans #${channel.name} (${channelId}) [${isUS ? 'US' : 'FR'}]`);
 }

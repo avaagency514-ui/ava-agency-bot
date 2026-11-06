@@ -152,6 +152,12 @@ module.exports = {
         return handleContentFactory(interaction, client);
       }
 
+      // 🎬 Générer un Reel avec Caption
+      if (id === 'cf_reel_generate') {
+        const { handleGenerateReel } = require('../handlers/contentFactory');
+        return handleGenerateReel(interaction);
+      }
+
       // Content Factory Twitter
       if (id.startsWith('tw_content_')) {
         const { handleTwitterContent } = require('../handlers/twitterContentFactory');
