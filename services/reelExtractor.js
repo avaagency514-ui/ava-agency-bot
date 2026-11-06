@@ -158,7 +158,17 @@ async function processSingleMediaItem({ mediaUrl, isAttachment, attachmentName, 
       await downloadDirectFile(mediaUrl, videoPath);
     } else {
       const outputTmpl = path.join(workDir, 'video.%(ext)s');
-      await downloadWithYtDlp(mediaUrl, outputTmpl);
+      try {
+        await downloadWithYtDlp(mediaUrl, outputTmpl);
+      } catch (dlErr) {
+        if (dlErr.message && dlErr.message.includes("isn't available to everyone")) {
+          throw new Error("Cette vidéo est soumise à une restriction d'âge (+18) ou d'audience sur Instagram. Vous pouvez glisser-déposer le fichier vidéo (.mp4) directement ici dans Discord pour l'analyser !");
+        }
+        if (dlErr.message && (dlErr.message.includes("Private") || dlErr.message.includes("login"))) {
+          throw new Error("Ce compte ou cette vidéo semble privé(e) sur Instagram.");
+        }
+        throw dlErr;
+      }
 
       // Trouver le fichier vidéo téléchargé
       const downloadedFiles = fs.readdirSync(workDir).filter(f => !f.startsWith('frame_'));
@@ -339,10 +349,48 @@ async function processReelScrapperMessage(message, client) {
   }
 }
 
+/**
+ * Scanne les messages récents dans #reel-scrapper pour rattraper les liens non traités
+ */
+async function catchupUnprocessedReels(client) {
+  try {
+    const channel = await client.channels.fetch(CHANNEL_REEL_SCRAPPER_ID).catch(() => null);
+    if (!channel || !channel.isTextBased()) return;
+
+    const messages = await channel.messages.fetch({ limit: 20 }).catch(() => null);
+    if (!messages || messages.size === 0) return;
+
+    // Trier du plus ancien au plus récent
+    const sorted = Array.from(messages.values()).sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+
+    for (const msg of sorted) {
+      if (msg.author.bot) continue;
+
+      // Détecter s'il y a une URL ou une pièce jointe
+      const hasUrl = /(https?:\/\/[^\s]+)/i.test(msg.content);
+      const hasVideo = msg.attachments.some(att => (att.contentType && att.contentType.startsWith('video/')) || /\.(mp4|mov|webm)$/i.test(att.name || ''));
+      if (!hasUrl && !hasVideo) continue;
+
+      // Vérifier si le message a déjà été traité (réaction bot ✅ ou ⚠️ ou ❌)
+      const hasHandledReaction = msg.reactions.cache.some(r =>
+        (r.emoji.name === '✅' || r.emoji.name === '⚠️' || r.emoji.name === '❌') &&
+        (r.users.cache.has(client.user.id) || r.me || r.count > 0)
+      );
+      if (hasHandledReaction) continue;
+
+      console.log(`🔄 [Rattrapage Reel] Traitement du message ${msg.id} de ${msg.author.tag} dans #reel-scrapper...`);
+      await processReelScrapperMessage(msg, client);
+    }
+  } catch (err) {
+    console.error('❌ Erreur catchupUnprocessedReels:', err.message);
+  }
+}
+
 module.exports = {
   CHANNEL_REEL_SCRAPPER_ID,
   CHANNEL_CAPTION_REEL_ID,
   normalizeMediaKey,
   processSingleMediaItem,
-  processReelScrapperMessage
+  processReelScrapperMessage,
+  catchupUnprocessedReels
 };

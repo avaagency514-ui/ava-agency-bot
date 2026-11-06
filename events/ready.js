@@ -5,6 +5,7 @@ const { initComptaTables, setupComptaChannel, initMonthlyRecurringExpenses } = r
 const { setupPushPanelChannel } = require('../services/pushService');
 const { setupTwitterContentFactory } = require('../handlers/twitterContentFactory');
 const { renameAllExistingTickets } = require('../services/ticketRenamer');
+const { catchupUnprocessedReels } = require('../services/reelExtractor');
 
 module.exports = {
   name: Events.ClientReady,
@@ -67,6 +68,14 @@ module.exports = {
         renameAllExistingTickets(guild, client).catch(err => {
           console.error('❌ Erreur renameAllExistingTickets:', err);
         });
+      }
+      // Scanner et traiter les messages non traités dans #reel-scrapper
+      try {
+        catchupUnprocessedReels(client).catch(err => {
+          console.error('❌ Erreur catchupUnprocessedReels:', err);
+        });
+      } catch (err) {
+        console.error('❌ Erreur lancement catchupUnprocessedReels:', err);
       }
     } catch (err) {
       console.error('❌ Erreur lancement renommage des tickets existants:', err);
