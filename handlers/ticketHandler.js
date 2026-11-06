@@ -606,6 +606,14 @@ async function handleTicketButton(interaction, client) {
         await targetMember.roles.remove(CONFIG.roleNonVerifie).catch(() => null);
       }
 
+      // Renommer immédiatement le ticket en retirant le préfixe "ticket-" pour ne laisser que son nom
+      try {
+        const { renameTicketToCandidate } = require('../services/ticketRenamer');
+        await renameTicketToCandidate(interaction.channel, candidateId, guild, true);
+      } catch (renameErr) {
+        console.warn('⚠️ Erreur renommage après attribution rôle :', renameErr.message);
+      }
+
       // Mettre à jour le panneau manager dans le message actuel
       const { embed: updatedEmbed, row: updatedRow } = buildManagerPanel(poleKey, candidateId, roleToAdd.name);
       await interaction.message.edit({

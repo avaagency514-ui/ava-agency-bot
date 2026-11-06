@@ -1,12 +1,28 @@
 const { ChannelType, OverwriteType } = require('discord.js');
 
+const IGNORED_ROLES = new Set([
+  '1179331591789608990', // @everyone
+  '1557494396717498459', // Non vérifié
+  '1557491020785131583', // RaidProtect
+  '1557491413305004102', // bot
+  '1533104409637163069', // AVA Agent
+  '1524700087509323907', // Ticket Tool
+]);
+
+/**
+ * Vérifie si le membre a reçu un rôle officiel attribué par l'agence
+ */
+function hasRecruitedRole(member) {
+  if (!member || !member.roles) return false;
+  return member.roles.cache.some(r => !IGNORED_ROLES.has(r.id));
+}
+
 /**
  * Nettoie et formate un nom (affichage, prénom, surnom) pour en faire un nom de salon Discord valide.
- * Exemple: "Donovan" -> "ticket-donovan"
- *          "KARINA.H🌷" -> "ticket-karina-h"
- *          "♡🌹ᥫ᭡𝐌𝐞́𝐥𝐢𝐬𝐬𝐚 𝐁𝐞𝐥𝐥𝐚ᥫ᭡🌹🩷" -> "ticket-melissa-bella"
+ * Si hasRole est true, le préfixe "ticket-" est retiré pour ne laisser que le nom (ex: "donovan").
+ * Si hasRole est false, le nom commence par "ticket-" (ex: "ticket-donovan").
  */
-function formatTicketChannelName(rawName) {
+function formatTicketChannelName(rawName, hasRole = false) {
   if (!rawName) return null;
 
   const clean = rawName
@@ -22,7 +38,7 @@ function formatTicketChannelName(rawName) {
     .slice(0, 32);
 
   if (!clean) return null;
-  return `ticket-${clean}`;
+  return hasRole ? clean : `ticket-${clean}`;
 }
 
 /**
@@ -106,21 +122,20 @@ async function findCandidateInTicket(channel, client) {
 }
 
 /**
- * Renomme un ticket au nom exact (displayName / globalName) du candidat
+ * Renomme un ticket au nom exact du candidat (ou retire "ticket-" si un rôle est attribué)
  */
-async function renameTicketToCandidate(channel, candidateId, guild) {
+async function renameTicketToCandidate(channel, candidateId, guild, forceRole = null) {
   if (!channel || !candidateId || candidateId === 'any') return false;
 
   try {
-    // Récupérer le membre du serveur
     const member = await guild.members.fetch(candidateId).catch(() => null);
     let exactName = null;
+    let hasRole = false;
 
     if (member) {
-      // Priorité 1: displayName (surnom serveur ou nom d'affichage global du profil Discord)
       exactName = member.displayName || member.user.globalName || member.user.displayName || member.user.username;
+      hasRole = forceRole !== null ? forceRole : hasRecruitedRole(member);
     } else {
-      // Si le candidat a quitté le serveur, récupérer son profil Discord global
       const user = await channel.client.users.fetch(candidateId).catch(() => null);
       if (user) {
         exactName = user.globalName || user.displayName || user.username;
@@ -129,12 +144,12 @@ async function renameTicketToCandidate(channel, candidateId, guild) {
 
     if (!exactName) return false;
 
-    const targetName = formatTicketChannelName(exactName);
+    const targetName = formatTicketChannelName(exactName, hasRole);
     if (!targetName) return false;
 
     if (channel.name !== targetName) {
-      await channel.setName(targetName, `Renommage automatique au nom exact du candidat (${exactName})`);
-      console.log(`🏷️ Ticket #${channel.id} renommé : #${channel.name} ➔ #${targetName} (Nom exact: "${exactName}")`);
+      await channel.setName(targetName, `Renommage ticket (${hasRole ? 'Rôle attribué' : 'Candidat'} : ${exactName})`);
+      console.log(`🏷️ Ticket #${channel.id} renommé : #${channel.name} ➔ #${targetName} (Nom exact: "${exactName}", Rôle: ${hasRole})`);
       return true;
     }
   } catch (err) {
@@ -145,7 +160,7 @@ async function renameTicketToCandidate(channel, candidateId, guild) {
 }
 
 /**
- * Scanne et renomme TOUS les anciens tickets existants sur le serveur Discord au nom exact de leur créateur
+ * Scanne et renomme TOUS les anciens tickets existants sur le serveur Discord
  */
 async function renameAllExistingTickets(guild, client) {
   if (!guild) return 0;
@@ -194,6 +209,7 @@ async function renameAllExistingTickets(guild, client) {
 }
 
 module.exports = {
+  hasRecruitedRole,
   formatTicketChannelName,
   findCandidateInTicket,
   renameTicketToCandidate,
