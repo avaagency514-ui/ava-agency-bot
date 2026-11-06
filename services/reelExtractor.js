@@ -130,6 +130,47 @@ async function extractFramesFromVideo(videoPath, outputDir) {
 }
 
 /**
+ * Découpe un texte extrait en légendes / accroches individuelles
+ * Règle "1 reel = 1 caption" : chaque hook distinct forme un message séparé
+ */
+function splitIntoIndividualCaptions(raw) {
+  if (!raw || typeof raw !== 'string') return [];
+  let chunks = [];
+
+  // 1. Séparateur standard injecté par le prompt OCR
+  if (raw.includes('===CAPTION===')) {
+    chunks = raw.split(/===CAPTION===/i);
+  } else if (raw.includes('\n---\n')) {
+    chunks = raw.split(/\n---\n/);
+  } else {
+    // 2. Détection heuristique de sauts de paragraphe avec nouvelle phrase
+    const splitRegex = /\n\s*\n\s*(?=[A-ZÀ-ÖØ-ß0-9"'«»#@•🔹1-9])/;
+    if (splitRegex.test(raw)) {
+      chunks = raw.split(splitRegex);
+    } else {
+      chunks = [raw];
+    }
+  }
+
+  const seen = new Set();
+  const cleaned = [];
+
+  for (const c of chunks) {
+    const trimmed = c.trim();
+    if (!trimmed || trimmed.length < 3) continue;
+
+    // Dédupliquer les répétitions strictes ou reformulations identiques
+    const norm = trimmed.toLowerCase().replace(/\s+/g, ' ').replace(/[.,!?:;]/g, '');
+    if (seen.has(norm)) continue;
+    seen.add(norm);
+
+    cleaned.push(trimmed);
+  }
+
+  return cleaned.length > 0 ? cleaned : [raw.trim()];
+}
+
+/**
  * Traite un élément média unique (URL ou pièce jointe)
  */
 async function processSingleMediaItem({ mediaUrl, isAttachment, attachmentName, author, channelId, client }) {
@@ -195,6 +236,7 @@ async function processSingleMediaItem({ mediaUrl, isAttachment, attachmentName, 
     }
 
     const cleanHook = extractedHook.trim();
+    const individualCaptions = splitIntoIndividualCaptions(cleanHook);
 
     // 5. Sauvegarde en base de données
     try {
@@ -209,12 +251,17 @@ async function processSingleMediaItem({ mediaUrl, isAttachment, attachmentName, 
       console.warn('⚠️ Erreur enregistrement SQLite scraped_reels:', dbErr.message);
     }
 
-    // 6. Publication du hook dans le salon #caption-reel
+    // 6. Publication dans le salon #caption-reel (Règle 1 reel / hook = 1 message distinct)
     try {
       const captionChannel = await client.channels.fetch(CHANNEL_CAPTION_REEL_ID);
       if (captionChannel && captionChannel.isTextBased()) {
-        await captionChannel.send(cleanHook);
-        console.log(`✅ Hook publié avec succès dans #caption-reel: "${cleanHook}"`);
+        for (const cap of individualCaptions) {
+          await captionChannel.send(cap);
+          console.log(`✅ Caption individuelle publiée dans #caption-reel: "${cap.slice(0, 45)}..."`);
+          if (individualCaptions.length > 1) {
+            await new Promise(r => setTimeout(r, 600)); // Temporisation pour préserver l'ordre Discord
+          }
+        }
       } else {
         console.warn(`⚠️ Salon #caption-reel (${CHANNEL_CAPTION_REEL_ID}) introuvable ou non textuel.`);
       }
@@ -225,7 +272,8 @@ async function processSingleMediaItem({ mediaUrl, isAttachment, attachmentName, 
     return {
       status: 'success',
       key: mediaKey,
-      text: cleanHook
+      text: cleanHook,
+      captionsCount: individualCaptions.length
     };
 
   } finally {
@@ -343,7 +391,11 @@ async function processReelScrapperMessage(message, client) {
     }
 
     if (lines.length > 0) {
-      await message.reply({ content: lines.join('\n\n'), allowedMentions: { repliedUser: false } });
+      let combined = lines.join('\n\n');
+      if (combined.length > 1950) {
+        combined = combined.slice(0, 1900) + '\n\n*(... synthèse écourtée pour respecter la limite de message Discord)*';
+      }
+      await message.reply({ content: combined, allowedMentions: { repliedUser: false } });
     }
 
   } catch (e) {

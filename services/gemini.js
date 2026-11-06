@@ -312,9 +312,14 @@ RÈGLES IMPORTANTES :
 1. Retranscris EXACTEMENT le texte incrusté mot pour mot, en conservant les majuscules, accents, ponctuation et emojis originaux.
 2. Ignore totalement les boutons et icônes d'interface d'Instagram (le pseudo de la modèle, le bouton s'abonner, la barre de recherche, le compteur de likes, la musique en bas, etc.).
 3. Ne transcris QUE la phrase ou question ou texte affiché au milieu/haut/bas de la vidéo qui s'adresse au spectateur (ex: "Pov : Je suis du signe...", "Quand t'es pas sur la même longueur d'onde 😂", "Ta daronne préf 🫦").
-4. Si le texte est écrit sur plusieurs lignes, conserve les retours à la ligne.
-5. Réponds UNIQUEMENT avec le texte extrait. Ne mets PAS de guillemets autour, AUCUN commentaire introductif (ne dis pas "Voici le texte :"), AUCUN bloc de code markdown.
-6. Si absolument aucun texte ou phrase n'est incrusté dans la vidéo, réponds exactement : AUCUN_TEXTE`;
+4. Si le texte est écrit sur plusieurs lignes pour une même accroche, conserve ses retours à la ligne internes.
+5. RÈGLE 1 REEL = 1 CAPTION : Si la vidéo montre PLUSIEURS accroches ou idées distinctes (compilation de hooks, plusieurs slides d'idées différentes, propositions successives indépendantes) :
+Tu DOIS impérativement séparer CHAQUE accroche distincte par une ligne contenant uniquement :
+===CAPTION===
+Chaque bloc séparé par ===CAPTION=== doit être une accroche complète prête à être copiée-collée individuellement.
+6. Ne répète JAMAIS deux fois la même accroche (si la même phrase apparaît sous forme compacte puis éclatée, ne garde que la version la plus complète).
+7. Réponds UNIQUEMENT avec le texte extrait. Ne mets PAS de guillemets autour, AUCUN commentaire introductif (ne dis pas "Voici le texte :"), AUCUN bloc de code markdown.
+8. Si absolument aucun texte ou phrase n'est incrusté dans la vidéo, réponds exactement : AUCUN_TEXTE`;
 
   const parts = [{ text: prompt }];
 
