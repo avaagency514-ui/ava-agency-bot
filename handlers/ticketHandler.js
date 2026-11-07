@@ -127,49 +127,31 @@ async function sendTicketWelcome(channel, candidateId = 'any') {
       }
     }
     const embed = new EmbedBuilder()
-      .setTitle('🎯 Bienvenue chez AVA Agency — Orientation Recrutement VA')
+      .setTitle('🎯 Bienvenue chez AVA Agency — Orientation Recrutement')
       .setDescription(
-        (candidateId && candidateId !== 'any' 
-          ? `Bonjour <@${candidateId}> ! Bienvenue dans votre salon de recrutement.\n\n`
-          : `Bonjour et bienvenue dans votre salon de recrutement AVA Agency !\n\n`) +
-        `Nous recrutons actuellement des **Assistants Virtuels (VA)** pour développer nos réseaux.\n` +
-        `*(Le recrutement pour les postes de Chatter est actuellement fermé).* \n\n` +
-        `💰 **Conditions & Rémunération :**\n` +
-        `• **Paiement :** Rémunération par sub (abonnements qualifiés).\n` +
-        `• **Fréquence :** Tous les 14 jours (**toutes les 2 semaines**).\n` +
-        `• **Moyen :** Crypto **USDT**.\n\n` +
-        `👉 **Veuillez sélectionner le pôle pour lequel vous postulez :**`
+        candidateId && candidateId !== 'any' 
+          ? `Bonjour <@${candidateId}> ! Bienvenue dans votre salon d'onboarding.\n\nPour vous orienter directement vers le bon responsable, **veuillez indiquer votre profil ci-dessous :**`
+          : `Bonjour et bienvenue dans votre salon d'onboarding AVA Agency !\n\nPour vous orienter directement vers le bon responsable, **veuillez indiquer votre profil ci-dessous :**`
       )
       .setColor(0x5865f2)
       .addFields(
-        { name: '📱 VA Instagram', value: 'Insta Mobile ou iPhone Jailbreaké', inline: true },
-        { name: '🐦 VA Twitter & Threads', value: 'Gestion de comptes & diffusion X / Threads', inline: true },
-        { name: '📘 VA Facebook', value: 'Publication & groupes Facebook', inline: true }
+        { name: '💎 Profil VA (Virtual Assistant)', value: 'Gestion de comptes & diffusion de contenu (Twitter, Insta, Jailbreak, Facebook, Threads)', inline: true },
+        { name: '💬 Profil Chatter', value: 'Messagerie, conversion et discussion directe avec les abonnés', inline: true }
       )
-      .setFooter({ text: 'AVA Agency • Recrutement 100% VA • Rémunération par Sub (USDT toutes les 2 sem.)' })
+      .setFooter({ text: 'AVA Agency • Système de Recrutement Automatisé' })
       .setTimestamp();
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId(`ticket_va_pole:${candidateId}:instamobile`)
-        .setLabel('VA Instagram')
-        .setEmoji('📱')
-        .setStyle(ButtonStyle.Primary),
+        .setCustomId(`ticket_type_va:${candidateId}`)
+        .setLabel('Je suis un VA')
+        .setEmoji('💎')
+        .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
-        .setCustomId(`ticket_va_pole:${candidateId}:twitter`)
-        .setLabel('VA Twitter & Threads')
-        .setEmoji('🐦')
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId(`ticket_va_pole:${candidateId}:facebook`)
-        .setLabel('VA Facebook')
-        .setEmoji('📘')
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId(`ticket_va_pole:${candidateId}:jailbreak`)
-        .setLabel('VA Jailbreak')
-        .setEmoji('⚡')
-        .setStyle(ButtonStyle.Secondary)
+        .setCustomId(`ticket_type_chatter:${candidateId}`)
+        .setLabel('Je suis un Chatter')
+        .setEmoji('💬')
+        .setStyle(ButtonStyle.Primary)
     );
 
     return await channel.send({
@@ -414,9 +396,43 @@ async function handleTicketButton(interaction, client) {
 
   // ── Cas 1 : Clic sur "Je suis un Chatter" ──────────────────────
   if (action === 'ticket_type_chatter') {
-    return await interaction.reply({
-      content: '❌ **Recrutement Chatter clôturé :** Notre agence a interrompu le recrutement de Chatters. Nous recrutons actuellement **exclusivement des Assistants Virtuels (VA)**. Merci de choisir l\'un des pôles VA ci-dessus !',
-      ephemeral: true
+    // Vérification que c'est le candidat ou le staff
+    if (interaction.user.id !== candidateId && !isStaff(interaction.member)) {
+      return interaction.reply({ content: '⛔ Ce choix est réservé au candidat.', ephemeral: true });
+    }
+
+    await interaction.deferUpdate();
+
+    // Isoler le ticket pour le Manager Chatter
+    await isolateTicket(interaction.channel, candidateId, CONFIG.poles.chatter.managerRoleId);
+
+    // Mettre à jour le message d'accueil
+    const confirmationEmbed = new EmbedBuilder()
+      .setTitle('💬 Pôle sélectionné : Chatter')
+      .setDescription(`Le candidat <@${candidateId}> postule en tant que **Chatter**.\n\n🔒 Le ticket a été rendu **100% privé** : seuls le candidat, le Manager Chatter et la Direction ont désormais accès à ce salon.`)
+      .setColor(CONFIG.poles.chatter.color);
+
+    await interaction.editReply({
+      embeds: [confirmationEmbed],
+      components: []
+    });
+
+    // Envoyer directement l'offre au candidat
+    const offerEmbed = buildChatterOfferEmbed(candidateId);
+    const shiftRow = buildChatterShiftButtons(candidateId);
+
+    await interaction.channel.send({
+      content: `👋 <@${candidateId}> Voici l'offre officielle pour le poste de **Chatter** :`,
+      embeds: [offerEmbed],
+      components: [shiftRow]
+    });
+
+    // Ping du manager + envoi du panneau manager
+    const { embed: mgrEmbed, row: mgrRow } = buildManagerPanel('chatter', candidateId);
+    return await interaction.channel.send({
+      content: `🔔 Notification : <@&${CONFIG.poles.chatter.managerRoleId}> <@&${CONFIG.adminRoles[0]}> — Nouveau candidat **Chatter** !`,
+      embeds: [mgrEmbed],
+      components: [mgrRow]
     });
   }
 

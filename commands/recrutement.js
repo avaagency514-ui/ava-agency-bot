@@ -160,16 +160,45 @@ Je cherche des profils expérimentés pour gérer et scaler du trafic via X (Twi
 ---
 📩 Pour postuler :
 DM @rcruting_bot pour postuler ! 📈`
+  },
+  {
+    id: 'chatter',
+    title: '💬 RECRUTEMENT — CHATTER EXPÉRIMENTÉ(E)',
+    roleName: 'Chatter Expérimenté(e)',
+    emoji: '💬',
+    text: `🔥 RECRUTEMENT CHATTER EXPÉRIMENTÉ(E) — REJOINS NOTRE AGENCE !
+
+Tu maîtrises l'art de la discussion, de l'engagement et de la conversion ? Notre agence recrute des chatters motivés et talentueux pour dynamiser ses comptes.
+
+💰 RÉMUNÉRATION & AVANTAGES :
+• Rémunération au pourcentage selon tes performances
+• Jusqu'à 15% de commission + primes de résultats 🤑
+• Paiement toutes les 2 semaines (tous les 14 jours) 📆
+• Règlement sécurisé en Crypto USDT 💵
+• Possibilités d'évolution rapide au sein de l'agence
+
+💼 PROFIL RECHERCHÉ :
+• Expérience requise en tant que chatter (OFM / réseaux sociaux)
+• Excellente aisance relationnelle et rédactionnelle
+• Sérieux, autonome, rigoureux et disponible
+• Ordinateur et/ou smartphone avec connexion stable
+
+🎓 ACCOMPAGNEMENT :
+• Process rodés et organisation d'équipe claire
+• Suivi personnalisé par les Managers
+
+📩 Pour postuler :
+DM @rcruting_bot avec une courte présentation de ton parcours ! 📈`
   }
 ];
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('recrutement')
-    .setDescription('Gestion et diffusion des annonces de recrutement VA (Instagram, Facebook, Twitter, Threads)')
+    .setDescription('Gestion et diffusion des 6 annonces de recrutement officielles (VA & Chatter)')
     .addSubcommand(sub =>
       sub.setName('random')
-        .setDescription('Choisir et diffuser aléatoirement une annonce de recrutement VA')
+        .setDescription('Choisir et diffuser aléatoirement une annonce parmi les 6 postes')
         .addChannelOption(opt =>
           opt.setName('salon')
             .setDescription('Salon où publier l\'annonce (laisser vide pour afficher ici)')
@@ -194,7 +223,8 @@ module.exports = {
               { name: '📘 VA Facebook', value: 'facebook' },
               { name: '⚡ VA Insta Jailbreak', value: 'jailbreak' },
               { name: '🐦 VA Twitter / X', value: 'twitter' },
-              { name: '🧵 VA Twitter & Threads', value: 'xthreads' }
+              { name: '🧵 VA Twitter & Threads', value: 'xthreads' },
+              { name: '💬 Chatter Expérimenté(e)', value: 'chatter' }
             )
         )
         .addChannelOption(opt =>
@@ -211,7 +241,7 @@ module.exports = {
     )
     .addSubcommand(sub =>
       sub.setName('list')
-        .setDescription('Consulter la liste des 5 annonces de recrutement officielles prêtes à l\'emploi')
+        .setDescription('Consulter la liste des 6 annonces de recrutement officielles prêtes à l\'emploi')
     ),
 
   async execute(interaction) {
@@ -221,15 +251,16 @@ module.exports = {
     if (sub === 'list') {
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
-        .setTitle('📋 Modèles de Recrutement AVA Agency — 100% VA')
+        .setTitle('📋 Modèles de Recrutement AVA Agency — 6 Postes (VA & Chatter)')
         .setDescription(
-          `Voici les **5 annonces officielles de recrutement VA**, harmonisées selon vos directives :\n\n` +
-          `• **Rémunération :** Au sub (abonnements qualifiés).\n` +
+          `Voici les **6 annonces officielles de recrutement**, harmonisées selon vos directives :\n\n` +
+          `• **Postes :** 5 filières VA + 1 filière Chatter.\n` +
           `• **Période :** Toutes les 2 semaines (tous les 14 jours).\n` +
-          `• **Mode de paiement :** Crypto USDT.\n\n` +
-          `Vous pouvez utiliser \`/recrutement random\` pour diffuser une annonce au hasard ou \`/recrutement send\` pour en choisir une.`
+          `• **Mode de paiement :** Crypto USDT.\n` +
+          `• **Contact :** @rcruting_bot.\n\n` +
+          `Vous pouvez utiliser \`/recrutement random\` pour diffuser une annonce au hasard parmi les 6 ou \`/recrutement send\` pour en choisir une.`
         )
-        .setFooter({ text: 'AVA Agency • Recrutement VA' })
+        .setFooter({ text: 'AVA Agency • Recrutement VA & Chatter' })
         .setTimestamp();
 
       for (const t of VA_RECRUITMENT_TEMPLATES) {
