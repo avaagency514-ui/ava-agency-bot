@@ -10,7 +10,7 @@ const VA_RECRUITMENT_TEMPLATES = [
 
 Tu souhaites travailler à distance directement depuis ton smartphone ? Nous recherchons de nouveaux profils pour développer notre équipe spécialisée dans la gestion et le développement de comptes Instagram !
 
-📩 Contact : @ameliemlh 📩 
+📩 Contact : @rcruting_bot 📩 
 
 💰 RÉMUNÉRATION & MODALITÉS :
 - Rémunération au sub (au nombre d'abonnés qualifiés générés) 🎯
@@ -39,7 +39,7 @@ Tu souhaites travailler à distance directement depuis ton smartphone ? Nous rec
 
 Nous recherchons des personnes motivées, prêtes à s'investir et à évoluer avec nous sur le long terme.
 
-📩 Intéressé(e) ? Envoie un DM avec une petite présentation de toi ! 📩`
+📩 Intéressé(e) ? Envoie un DM à @rcruting_bot avec une petite présentation de toi ! 📩`
   },
   {
     id: 'facebook',
@@ -66,7 +66,7 @@ Smartphone + 4G/5G suffisent. Vidéos, formation et lien personnel fournis par l
 
 ✅ Recherche de profils sérieux, motivés et réguliers.
 
-✉️ Contacte-nous en message privé pour postuler !`
+✉️ Contacte @rcruting_bot en message privé pour postuler !`
   },
   {
     id: 'jailbreak',
@@ -84,7 +84,7 @@ Smartphone + 4G/5G suffisent. Vidéos, formation et lien personnel fournis par l
 ⏰ 1 à 2h par jour seulement
 📈 Outils automatisés et accompagnement fournis
 
-🔥 Les places partent très vite ! Contacte-nous en DM pour rejoindre l'équipe.`
+🔥 Les places partent très vite ! Contacte @rcruting_bot en DM pour rejoindre l'équipe.`
   },
   {
     id: 'twitter',
@@ -113,7 +113,7 @@ Nous recrutons des personnes motivées pour gérer des comptes Twitter / X : cr�
 • Sérieux, motivé et régulier
 • Formation complète fournie
 
-📩 Intéressé(e) ? Envoie-moi un DM avec ta présentation ! (Marché FR 🇫🇷)`
+📩 Intéressé(e) ? Envoie un DM à @rcruting_bot avec ta présentation ! (Marché FR 🇫🇷)`
   },
   {
     id: 'xthreads',
