@@ -366,8 +366,8 @@ function buildVaOfferEmbed(candidateId, pole = null) {
       `• Vos points / subs ne sont jamais perdus et restent cumulés pour la session suivante si le seuil n'est pas encore atteint.\n\n` +
       `🏆 **Primes de performance :**\n` +
       `• Bonus d'excellence de **+10$** dès 500 subs valides dans le mois.\n\n` +
-      `🌍 **Trafic qualifié :**\n` +
-      `• Subs issus des zones prioritaires (France, Europe, USA, UK, Canada, etc.).\n\n` +
+      `🌍 **Trafic STRICTEMENT FRANCE 🇫🇷 :**\n` +
+      `• Seuls les abonnés français qualifiés sont comptabilisés pour votre paie (les autres pays sont exclus du barème).\n\n` +
       `👉 *Un manager va prendre en charge votre ticket d'ici peu pour échanger avec vous et finaliser votre intégration.*`
     )
     .setFooter({ text: 'AVA Agency • Recrutement VA • Paiement toutes les 2 semaines en USDT (par sub)' })
@@ -470,7 +470,7 @@ async function handleTicketButton(interaction, client) {
         `• **Objectif minimum :** 30 subs valides requis pour débloquer un virement (toutes les 2 semaines).\n` +
         `• **Conservation des points :** Vos points ne sont jamais perdus et restent cumulés pour la session suivante.\n` +
         `• **Prime d'excellence :** Bonus de +10$ dès 500 subs valides atteints dans le mois.\n` +
-        `• **Pays éligibles :** Subs issus de zones qualifiées (France, Europe, USA, etc.).\n\n` +
+        `• **Pays éligibles :** Trafic STRICTEMENT FRANCE 🇫🇷 (abonnés français uniquement).\n\n` +
         `👉 Veuillez choisir ci-dessous le **pôle pour lequel vous postulez :**`
       )
       .setColor(0xe67e22)
