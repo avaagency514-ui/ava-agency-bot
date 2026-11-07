@@ -22,6 +22,10 @@ const {
   CHANNEL_PUB_ID,
   handlePubMessageDrop
 } = require('../services/pubService');
+const {
+  TARGET_CHANNEL_ID: COACH_CHANNEL_ID,
+  handleChatCoachMessage
+} = require('../handlers/chatCoachHandler');
 
 module.exports = {
   name: Events.MessageCreate,
@@ -30,6 +34,11 @@ module.exports = {
   async execute(message, client) {
     // Ignorer les bots
     if (message.author.bot) return;
+
+    // Assistant Chatting & Séduction (#assistant-chatting)
+    if (message.channelId === COACH_CHANNEL_ID) {
+      return await handleChatCoachMessage(message);
+    }
 
     // Détection des créations d'annonces dans le salon #pub
     if (message.channelId === CHANNEL_PUB_ID) {

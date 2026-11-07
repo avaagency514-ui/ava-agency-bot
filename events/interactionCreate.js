@@ -104,6 +104,12 @@ module.exports = {
     if (interaction.isButton()) {
       const id = interaction.customId;
 
+      // Assistant Chatting & Séduction (#assistant-chatting)
+      if (id.startsWith('coach_')) {
+        const { handleChatCoachInteraction } = require('../handlers/chatCoachHandler');
+        return handleChatCoachInteraction(interaction, client);
+      }
+
       // Push Telegram Mass DM
       if (id.startsWith('push_')) {
         return handlePushButton(interaction, client);
