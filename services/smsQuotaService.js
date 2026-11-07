@@ -129,6 +129,81 @@ function recordSmsOrder(userId, orderId, phonenumber, service = 'instagram') {
 }
 
 /**
+ * Rétro-synchronise les SMS déjà envoyés par le bot dans les salons de la Content Factory
+ * pour initialiser l'historique réel et les quotas de chaque VA.
+ */
+async function syncPastSmsUsage(client) {
+  try {
+    const channelIds = [
+      process.env.CHANNEL_CONTENT_TWITTER || '1524471089571565778',
+      process.env.CHANNEL_CONTENT_FR || '1472915645153939559',
+      process.env.CHANNEL_CONTENT_US || '1502700062130835506',
+      process.env.CHANNEL_CONTENT_FR_MOBILE || '1556360802699841607',
+      process.env.CHANNEL_CONTENT_US_MOBILE || '1556362484057772092',
+    ];
+
+    let totalImported = 0;
+    const checkOrderStmt = db.prepare('SELECT id FROM sms_usage WHERE order_id = ?');
+    const insertStmt = db.prepare(`
+      INSERT INTO sms_usage (user_id, order_id, phonenumber, service, status, created_at) 
+      VALUES (?, ?, ?, ?, 'received', ?)
+    `);
+    const initQuotaStmt = db.prepare(`
+      INSERT INTO sms_quotas (user_id, max_numbers, bonus_granted) 
+      VALUES (?, 5, 0) 
+      ON CONFLICT(user_id) DO NOTHING
+    `);
+
+    for (const cId of channelIds) {
+      const channel = await client.channels.fetch(cId).catch(() => null);
+      if (!channel) continue;
+
+      let allMessages = [];
+      let lastId = null;
+      while (allMessages.length < 500) {
+        const batch = await channel.messages.fetch({ limit: 100, ...(lastId ? { before: lastId } : {}) }).catch(() => null);
+        if (!batch || batch.size === 0) break;
+        allMessages = allMessages.concat(Array.from(batch.values()));
+        lastId = batch.last().id;
+        if (batch.size < 100) break;
+      }
+
+      for (const m of allMessages) {
+        if (m.author.id !== client.user.id) continue;
+        const match = m.content.match(/<@(\d+)>\s+ton code/i);
+        if (!match) continue;
+
+        const userId = match[1];
+        const orderId = 'msg_' + m.id;
+
+        // Éviter les doublons
+        if (checkOrderStmt.get(orderId)) continue;
+
+        const embed = m.embeds[0];
+        let phonenumber = '';
+        if (embed && embed.description) {
+          const phoneMatch = embed.description.match(/\+1(\d+)/);
+          if (phoneMatch) phonenumber = phoneMatch[1];
+        }
+
+        const service = m.content.toLowerCase().includes('twitter') ? 'twitter' : 'instagram';
+        const createdAt = m.createdAt.toISOString();
+
+        insertStmt.run(userId, orderId, phonenumber, service, createdAt);
+        initQuotaStmt.run(userId);
+        totalImported++;
+      }
+    }
+
+    if (totalImported > 0) {
+      console.log(`📦 [SMS Quotas] ${totalImported} SMS historiques synchronisés avec succès depuis Discord.`);
+    }
+  } catch (err) {
+    console.error('❌ Erreur syncPastSmsUsage:', err.message);
+  }
+}
+
+/**
  * Marque une commande SMS comme reçue
  */
 function markSmsReceived(orderId) {
@@ -350,6 +425,7 @@ async function handleSmsApprovalButton(interaction, client) {
 
 module.exports = {
   initSmsTables,
+  syncPastSmsUsage,
   isManagerOrFounder,
   getUserSmsStats,
   getUserSmsHistory,

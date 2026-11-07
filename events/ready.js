@@ -63,6 +63,16 @@ module.exports = {
       console.error('❌ Erreur setupTwitterContentFactory:', err);
     }
 
+    // Rétro-synchroniser l'historique des SMS livrés dans les salons Content Factory
+    try {
+      const { syncPastSmsUsage } = require('../services/smsQuotaService');
+      syncPastSmsUsage(client).catch(err => {
+        console.error('❌ Erreur syncPastSmsUsage:', err.message);
+      });
+    } catch (err) {
+      console.error('❌ Erreur initialisation syncPastSmsUsage:', err);
+    }
+
     // Renommer automatiquement tous les anciens tickets existants au nom de leur candidat
     try {
       const guild = client.guilds.cache.get(process.env.DISCORD_GUILD_ID) || client.guilds.cache.first();
