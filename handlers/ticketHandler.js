@@ -127,31 +127,49 @@ async function sendTicketWelcome(channel, candidateId = 'any') {
       }
     }
     const embed = new EmbedBuilder()
-      .setTitle('🎯 Bienvenue chez AVA Agency — Orientation Recrutement')
+      .setTitle('🎯 Bienvenue chez AVA Agency — Orientation Recrutement VA')
       .setDescription(
-        candidateId && candidateId !== 'any' 
-          ? `Bonjour <@${candidateId}> ! Bienvenue dans votre salon d'onboarding.\n\nPour vous orienter directement vers le bon responsable, **veuillez indiquer votre profil ci-dessous :**`
-          : `Bonjour et bienvenue dans votre salon d'onboarding AVA Agency !\n\nPour vous orienter directement vers le bon responsable, **veuillez indiquer votre profil ci-dessous :**`
+        (candidateId && candidateId !== 'any' 
+          ? `Bonjour <@${candidateId}> ! Bienvenue dans votre salon de recrutement.\n\n`
+          : `Bonjour et bienvenue dans votre salon de recrutement AVA Agency !\n\n`) +
+        `Nous recrutons actuellement des **Assistants Virtuels (VA)** pour développer nos réseaux.\n` +
+        `*(Le recrutement pour les postes de Chatter est actuellement fermé).* \n\n` +
+        `💰 **Conditions & Rémunération :**\n` +
+        `• **Paiement :** Rémunération par sub (abonnements qualifiés).\n` +
+        `• **Fréquence :** Tous les 14 jours (**toutes les 2 semaines**).\n` +
+        `• **Moyen :** Crypto **USDT**.\n\n` +
+        `👉 **Veuillez sélectionner le pôle pour lequel vous postulez :**`
       )
       .setColor(0x5865f2)
       .addFields(
-        { name: '💎 Profil VA (Virtual Assistant)', value: 'Gestion de comptes & diffusion de contenu (Twitter, Insta, Jailbreak, Facebook, Threads)', inline: true },
-        { name: '💬 Profil Chatter', value: 'Messagerie, conversion et discussion directe avec les abonnés', inline: true }
+        { name: '📱 VA Instagram', value: 'Insta Mobile ou iPhone Jailbreaké', inline: true },
+        { name: '🐦 VA Twitter & Threads', value: 'Gestion de comptes & diffusion X / Threads', inline: true },
+        { name: '📘 VA Facebook', value: 'Publication & groupes Facebook', inline: true }
       )
-      .setFooter({ text: 'AVA Agency • Système de Recrutement Automatisé' })
+      .setFooter({ text: 'AVA Agency • Recrutement 100% VA • Rémunération par Sub (USDT toutes les 2 sem.)' })
       .setTimestamp();
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId(`ticket_type_va:${candidateId}`)
-        .setLabel('Je suis un VA')
-        .setEmoji('💎')
-        .setStyle(ButtonStyle.Success),
+        .setCustomId(`ticket_va_pole:${candidateId}:instamobile`)
+        .setLabel('VA Instagram')
+        .setEmoji('📱')
+        .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
-        .setCustomId(`ticket_type_chatter:${candidateId}`)
-        .setLabel('Je suis un Chatter')
-        .setEmoji('💬')
-        .setStyle(ButtonStyle.Primary)
+        .setCustomId(`ticket_va_pole:${candidateId}:twitter`)
+        .setLabel('VA Twitter & Threads')
+        .setEmoji('🐦')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`ticket_va_pole:${candidateId}:facebook`)
+        .setLabel('VA Facebook')
+        .setEmoji('📘')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`ticket_va_pole:${candidateId}:jailbreak`)
+        .setLabel('VA Jailbreak')
+        .setEmoji('⚡')
+        .setStyle(ButtonStyle.Secondary)
     );
 
     return await channel.send({
@@ -354,20 +372,23 @@ function buildVaOfferEmbed(candidateId, pole = null) {
     .setDescription(
       `Bonjour <@${candidateId}> !\n` +
       `Voici l'ensemble des conditions et le barème de rémunération officiel pour les **${poleName}** chez AVA Agency :\n\n` +
-      `💼 **1. ASSISTANTS VIRTUELS (VA)**\n\n` +
-      `💵 **Tarif de base :**\n` +
-      `• **1$** pour **3 subs éligibles**.\n\n` +
-      `🎯 **Objectif minimum de paiement :**\n` +
-      `• **30 subs valides** requis pour débloquer un virement (cycle de règlement **toutes les 2 semaines**).\n\n` +
+      `💼 **POSTE : ASSISTANT VIRTUEL (VA)**\n\n` +
+      `📊 **Rémunération au Sub :**\n` +
+      `• Paiement basé sur le nombre de subs (abonnements qualifiés) générés.\n` +
+      `• **Tarif de base :** **1$ pour 3 subs éligibles**.\n` +
+      `• **Objectif minimum de paiement :** 30 subs valides pour débloquer un règlement.\n\n` +
+      `💳 **Modalités de Paiement :**\n` +
+      `• **Fréquence :** Tous les 14 jours (**toutes les 2 semaines**).\n` +
+      `• **Mode de paiement :** Crypto **USDT**.\n\n` +
       `🔄 **Conservation des points :**\n` +
-      `• Si le seuil des 30 subs n'est pas atteint à la fin des 2 semaines, **vos points ne sont jamais perdus** et restent cumulés pour la session suivante.\n\n` +
-      `🏆 **Prime d'excellence :**\n` +
-      `• Bonus de **+10$** dès **500 subs valides** atteints dans le mois.\n\n` +
-      `🌍 **Pays éligibles :**\n` +
-      `• Subs issus de zones qualifiées (**France, Europe, USA**, etc.).\n\n` +
+      `• Vos points / subs ne sont jamais perdus et restent cumulés pour la session suivante si le seuil n'est pas encore atteint.\n\n` +
+      `🏆 **Primes de performance :**\n` +
+      `• Bonus d'excellence de **+10$** dès 500 subs valides dans le mois.\n\n` +
+      `🌍 **Trafic qualifié :**\n` +
+      `• Subs issus des zones prioritaires (France, Europe, USA, UK, Canada, etc.).\n\n` +
       `👉 *Un manager va prendre en charge votre ticket d'ici peu pour échanger avec vous et finaliser votre intégration.*`
     )
-    .setFooter({ text: 'AVA Agency • Rémunération Officielle VA' })
+    .setFooter({ text: 'AVA Agency • Recrutement VA • Paiement toutes les 2 semaines en USDT (par sub)' })
     .setTimestamp();
 }
 
@@ -393,43 +414,9 @@ async function handleTicketButton(interaction, client) {
 
   // ── Cas 1 : Clic sur "Je suis un Chatter" ──────────────────────
   if (action === 'ticket_type_chatter') {
-    // Vérification que c'est le candidat ou le staff
-    if (interaction.user.id !== candidateId && !isStaff(interaction.member)) {
-      return interaction.reply({ content: '⛔ Ce choix est réservé au candidat.', ephemeral: true });
-    }
-
-    await interaction.deferUpdate();
-
-    // Isoler le ticket pour le Manager Chatter
-    await isolateTicket(interaction.channel, candidateId, CONFIG.poles.chatter.managerRoleId);
-
-    // Mettre à jour le message d'accueil
-    const confirmationEmbed = new EmbedBuilder()
-      .setTitle('💬 Pôle sélectionné : Chatter')
-      .setDescription(`Le candidat <@${candidateId}> postule en tant que **Chatter**.\n\n🔒 Le ticket a été rendu **100% privé** : seuls le candidat, le Manager Chatter et la Direction ont désormais accès à ce salon.`)
-      .setColor(CONFIG.poles.chatter.color);
-
-    await interaction.editReply({
-      embeds: [confirmationEmbed],
-      components: []
-    });
-
-    // Envoyer directement l'offre au candidat
-    const offerEmbed = buildChatterOfferEmbed(candidateId);
-    const shiftRow = buildChatterShiftButtons(candidateId);
-
-    await interaction.channel.send({
-      content: `👋 <@${candidateId}> Voici l'offre officielle pour le poste de **Chatter** :`,
-      embeds: [offerEmbed],
-      components: [shiftRow]
-    });
-
-    // Ping du manager + envoi du panneau manager
-    const { embed: mgrEmbed, row: mgrRow } = buildManagerPanel('chatter', candidateId);
-    return await interaction.channel.send({
-      content: `🔔 Notification : <@&${CONFIG.poles.chatter.managerRoleId}> <@&${CONFIG.adminRoles[0]}> — Nouveau candidat **Chatter** !`,
-      embeds: [mgrEmbed],
-      components: [mgrRow]
+    return await interaction.reply({
+      content: '❌ **Recrutement Chatter clôturé :** Notre agence a interrompu le recrutement de Chatters. Nous recrutons actuellement **exclusivement des Assistants Virtuels (VA)**. Merci de choisir l\'un des pôles VA ci-dessus !',
+      ephemeral: true
     });
   }
 
