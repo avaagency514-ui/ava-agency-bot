@@ -5,7 +5,7 @@
 
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const https = require('https');
-const { analyzeChatting } = require('../services/chatCoachService');
+const { analyzeChatting, extractPotentialUsernames } = require('../services/chatCoachService');
 const wysper = require('../services/wysperService');
 
 const TARGET_CHANNEL_ID = '1568591980638773360';
@@ -100,11 +100,10 @@ async function handleChatCoachMessage(message) {
       timestamp: Date.now()
     });
 
-    // Nettoyer le cache après 1 heure
     setTimeout(() => contextCache.delete(message.id), 3600 * 1000);
 
-    // 2. Analyser la conversation
-    const analysis = await analyzeChatting({
+    // 2. Analyser la conversation (avec vérification préalable Wysper CRM et modèle non censuré)
+    const result = await analyzeChatting({
       imageBase64,
       mimeType,
       textContent,
@@ -114,13 +113,28 @@ async function handleChatCoachMessage(message) {
     await message.reactions.removeAll().catch(() => {});
     await message.react('🧠').catch(() => {});
 
-    // 3. Découper la réponse en embeds si nécessaire (limite Discord 4096 car.)
+    // 3. Construire l'Embed Discord
     const embed = new EmbedBuilder()
       .setTitle('🧠 Assistant Chatting & Séduction — AVA Agency')
-      .setColor('#ff4081')
-      .setDescription(analysis.length > 4000 ? analysis.substring(0, 3990) + '...' : analysis)
-      .setFooter({ text: `Demandé par @${message.author.username} • Clique sur un bouton pour ajuster l'angle` })
-      .setTimestamp();
+      .setColor('#ff4081');
+
+    // Afficher la fiche Wysper si le fan a été retrouvé dans le CRM
+    if (result.wysperInfo) {
+      const w = result.wysperInfo;
+      const badge = w.isWhale ? '🐳 BALEINE VIP' : w.isSpender ? '💸 SPENDER ACTIF' : '⌛ TIME WASTER';
+      const spend = `**${w.totalSpent}€** (${w.paymentsCount} achats)`;
+      const chatters = w.chatterNames.length > 0 ? w.chatterNames.join(', ') : 'Nouveau';
+      const tags = w.tags.length > 0 ? w.tags.join(', ') : 'Aucun';
+
+      embed.addFields({
+        name: `🔍 Fiche CRM Wysper : ${badge} — ${w.name} ${w.username ? `(${w.username})` : ''}`,
+        value: `• **Dépense réelle :** ${spend}\n• **Derniers vendeurs :** ${chatters}\n• **Tags CRM :** \`${tags}\`\n• *Stratégie adaptée automatiquement par le bot.*`
+      });
+    }
+
+    embed.setDescription(result.content.length > 4000 ? result.content.substring(0, 3990) + '...' : result.content);
+    embed.setFooter({ text: `Moteur : ${result.modelUsed} • Demandé par @${message.author.username}` });
+    embed.setTimestamp();
 
     const row = createActionRow(message.id);
 
@@ -218,20 +232,20 @@ async function handleChatCoachInteraction(interaction) {
   await interaction.deferReply();
 
   let angle = 'standard';
-  let angleLabel = 'Nouveau tirage';
+  let angleLabel = 'Nouveau tirage (Non censuré)';
   if (action === 'objection') {
     angle = 'objection';
     angleLabel = 'Traitement d\'objection (Notion)';
   } else if (action === 'hot') {
     angle = 'hot';
-    angleLabel = 'Sexualisation Poussée & Hot 🔥';
+    angleLabel = 'Sexualisation Poussée & Hot 🔥 (Non censuré)';
   } else if (action === 'closing') {
     angle = 'aggressive';
     angleLabel = 'Closing Agressif & Conversion 💰';
   }
 
   try {
-    const analysis = await analyzeChatting({
+    const result = await analyzeChatting({
       imageBase64: cached.imageBase64,
       mimeType: cached.mimeType,
       textContent: cached.textContent,
@@ -240,10 +254,20 @@ async function handleChatCoachInteraction(interaction) {
 
     const embed = new EmbedBuilder()
       .setTitle(`🧠 Assistant Chatting — Variante : ${angleLabel}`)
-      .setColor(action === 'hot' ? '#ff1744' : action === 'closing' ? '#00e676' : '#2979ff')
-      .setDescription(analysis.length > 4000 ? analysis.substring(0, 3990) + '...' : analysis)
-      .setFooter({ text: `Demandé par @${interaction.user.username} • Variante générée par FreeLLM/Gemini` })
-      .setTimestamp();
+      .setColor(action === 'hot' ? '#ff1744' : action === 'closing' ? '#00e676' : '#2979ff');
+
+    if (result.wysperInfo) {
+      const w = result.wysperInfo;
+      const badge = w.isWhale ? '🐳 BALEINE VIP' : w.isSpender ? '💸 SPENDER ACTIF' : '⌛ TIME WASTER';
+      embed.addFields({
+        name: `🔍 Fiche CRM Wysper : ${badge} — ${w.name}`,
+        value: `• **Dépense totale :** ${w.totalSpent}€ (${w.paymentsCount} achats)\n• **Tags :** \`${w.tags.join(', ') || 'Aucun'}\``
+      });
+    }
+
+    embed.setDescription(result.content.length > 4000 ? result.content.substring(0, 3990) + '...' : result.content);
+    embed.setFooter({ text: `Moteur : ${result.modelUsed} • Demandé par @${interaction.user.username}` });
+    embed.setTimestamp();
 
     const row = createActionRow(targetMessageId);
 

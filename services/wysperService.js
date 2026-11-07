@@ -9,6 +9,12 @@ const https = require('https');
 const WYSPER_BASE_HOST = 'wysper.io';
 const WYSPER_API_KEY = process.env.WYSPER_API_KEY || 'wsk_live_bfckcex3s7l2w2ne6ikfzacnmokjaw6p';
 
+// Cache mémoire des contacts et paiements pour des recherches ultra-rapides (< 100ms)
+let cachedContacts = null;
+let cachedPayments = null;
+let lastCacheUpdate = 0;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 /**
  * Effectue un appel GET vers l'API Wysper
  */
@@ -111,13 +117,130 @@ async function getContacts(accountId, maxPages = 5) {
  */
 async function getPayments(sinceDate) {
   try {
-    const since = sinceDate ? new Date(sinceDate).toISOString() : new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+    const since = sinceDate ? new Date(sinceDate).toISOString() : new Date(Date.now() - 45 * 24 * 3600 * 1000).toISOString();
     const res = await fetchWysper(`/api/v1/payments?since=${encodeURIComponent(since)}`);
     return res.data || [];
   } catch (err) {
     console.error('Erreur getPayments Wysper:', err.message);
     return [];
   }
+}
+
+/**
+ * Rafraîchit le cache en arrière-plan
+ */
+async function refreshCache() {
+  const accounts = await getAccounts();
+  const activeAccount = accounts.find(a => a.status === 'active') || accounts[0];
+  if (!activeAccount) return;
+
+  const [contacts, payments] = await Promise.all([
+    getContacts(activeAccount.telegram_id, 5),
+    getPayments()
+  ]);
+
+  cachedContacts = contacts;
+  cachedPayments = payments;
+  lastCacheUpdate = Date.now();
+}
+
+/**
+ * Recherche le profil réel d'un fan dans Wysper CRM
+ * Recherche par username, nom ou ID Telegram
+ */
+async function findFanProfile(query) {
+  if (!query || typeof query !== 'string' || query.trim().length < 2) return null;
+  const q = query.trim().toLowerCase().replace('@', '');
+
+  // Vérifier et actualiser le cache si expiré
+  if (!cachedContacts || !cachedPayments || (Date.now() - lastCacheUpdate > CACHE_TTL_MS)) {
+    await refreshCache();
+  }
+
+  const contacts = cachedContacts || [];
+  const payments = cachedPayments || [];
+
+  // Indexer les paiements par telegram_id
+  const payMap = {};
+  for (const p of payments) {
+    if (p.buyer && p.buyer.telegram_id && p.status === 'paid') {
+      const bId = p.buyer.telegram_id;
+      if (!payMap[bId]) {
+        payMap[bId] = {
+          totalSpent: 0,
+          paymentsCount: 0,
+          lastPaymentAt: p.paid_at,
+          chatterNames: new Set()
+        };
+      }
+      payMap[bId].totalSpent += (p.price_cents || p.amount_gross_cents || 0) / 100;
+      payMap[bId].paymentsCount++;
+      if (p.sent_by && p.sent_by.name) {
+        payMap[bId].chatterNames.add(p.sent_by.name);
+      }
+    }
+  }
+
+  // 1. Recherche dans les contacts
+  for (const c of contacts) {
+    const username = (c.telegram_username || '').toLowerCase();
+    const name = (c.telegram_name || c.name || '').toLowerCase();
+    const idStr = String(c.telegram_id);
+
+    if (username === q || idStr === q || name.includes(q) || (q.length >= 3 && (username.includes(q) || name.includes(q)))) {
+      const pm = payMap[c.telegram_id] || { totalSpent: (c.total_spent_cents || 0) / 100, paymentsCount: c.payments_count || 0, chatterNames: new Set() };
+      const tagNames = (c.tags || []).map(t => (t.name || '').toUpperCase());
+      const totalSpent = Math.max((c.total_spent_cents || 0) / 100, pm.totalSpent);
+      const isWhale = totalSpent >= 100 || tagNames.some(t => t.includes('BALEINE'));
+      const isSpender = (totalSpent > 0 && !isWhale) || tagNames.some(t => t.includes('SPENDER'));
+
+      return {
+        found: true,
+        source: 'Wysper Contacts',
+        telegram_id: c.telegram_id,
+        name: c.telegram_name || c.name || 'Inconnu',
+        username: c.telegram_username ? `@${c.telegram_username}` : null,
+        totalSpent,
+        paymentsCount: Math.max(c.payments_count || 0, pm.paymentsCount),
+        lastPaymentAt: c.last_payment_at || pm.lastPaymentAt,
+        tags: tagNames,
+        isWhale,
+        isSpender,
+        isTimeWaster: totalSpent === 0 || tagNames.some(t => t.includes('TW')),
+        chatterNames: Array.from(pm.chatterNames || [])
+      };
+    }
+  }
+
+  // 2. Recherche dans les paiements (acheteurs ayant déjà payé)
+  for (const p of payments) {
+    if (p.buyer && p.buyer.telegram_id) {
+      const b = p.buyer;
+      const bUsername = (b.telegram_username || '').toLowerCase();
+      const bId = String(b.telegram_id);
+      if (bUsername === q || bId === q || (bUsername && bUsername.includes(q))) {
+        const pm = payMap[b.telegram_id];
+        const totalSpent = pm ? pm.totalSpent : (p.price_cents || 0) / 100;
+        return {
+          found: true,
+          source: 'Wysper Payments',
+          telegram_id: b.telegram_id,
+          name: b.telegram_username || `Abonné #${b.telegram_id}`,
+          username: b.telegram_username ? `@${b.telegram_username}` : null,
+          totalSpent,
+          paymentsCount: pm ? pm.paymentsCount : 1,
+          lastPaymentAt: p.paid_at,
+          tags: totalSpent >= 100 ? ['BALEINE 🐳'] : ['SPENDER💸'],
+          isWhale: totalSpent >= 100,
+          isSpender: totalSpent > 0,
+          isTimeWaster: false,
+          chatterNames: pm ? Array.from(pm.chatterNames) : (p.sent_by?.name ? [p.sent_by.name] : [])
+        };
+      }
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -132,7 +255,6 @@ async function analyzeProspects(accountId) {
 
   const now = Date.now();
 
-  // Indexer les dépenses réelles par telegram_id depuis les paiements
   const spendByFanId = {};
   for (const p of payments) {
     if (p.buyer && p.buyer.telegram_id && p.status === 'paid') {
@@ -178,7 +300,6 @@ async function analyzeProspects(accountId) {
       timeWasters.push(fanInfo);
     }
 
-    // Détection des relances
     if (c.last_incoming_at) {
       const incomingTime = new Date(c.last_incoming_at).getTime();
       const outgoingTime = c.last_outgoing_at ? new Date(c.last_outgoing_at).getTime() : 0;
@@ -202,7 +323,6 @@ async function analyzeProspects(accountId) {
     }
   }
 
-  // Trier les relances par priorité puis par montant dépensé
   relanceNeeded.sort((a, b) => {
     if (a.priority !== b.priority) return a.priority - b.priority;
     return b.totalSpent - a.totalSpent;
@@ -225,5 +345,6 @@ module.exports = {
   getTags,
   getContacts,
   getPayments,
-  analyzeProspects
+  analyzeProspects,
+  findFanProfile
 };
