@@ -89,6 +89,8 @@ async function main() {
   
   // Init DB
   initDatabase();
+  const { initSmsTables } = require('./services/smsQuotaService');
+  initSmsTables();
   
   // Login Discord
   await client.login(process.env.DISCORD_TOKEN);

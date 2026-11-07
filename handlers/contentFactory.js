@@ -145,6 +145,8 @@ function getMarketFromInteraction(interaction) {
  */
 async function handleSMSRequest(interaction) {
   const { getBalance } = require('../services/smspool');
+  const { isManagerOrFounder, getUserSmsStats } = require('../services/smsQuotaService');
+  
   let balanceText = '';
   try {
     const balanceResult = await getBalance();
@@ -153,15 +155,34 @@ async function handleSMSRequest(interaction) {
     }
   } catch (e) {}
 
+  const isPrivileged = isManagerOrFounder(interaction.member);
+  const stats = getUserSmsStats(interaction.user.id);
+  const quotaText = isPrivileged
+    ? '`Illimité` *(Accès Manager / Fondateur)*'
+    : `\`${stats.usedNumbers} / ${stats.maxNumbers}\` numéros utilisés (${stats.remaining} restant${stats.remaining > 1 ? 's' : ''})`;
+
   const embed = new EmbedBuilder()
     .setColor(0xe74c3c)
     .setTitle('📱 SMSPool — Numéro Instagram US')
-    .setDescription(`Obtiens un numéro temporaire USA (+1) pour créer ou vérifier un compte Instagram.${balanceText}\n\nClique sur le bouton ci-dessous pour réserver un numéro.`)
+    .setDescription(`Obtiens un numéro temporaire USA (+1) pour créer ou vérifier un compte Instagram.${balanceText}\n\n📊 **Ton quota SMS :** ${quotaText}\n\n${!isPrivileged && stats.isExceeded ? '⚠️ **Limite atteinte :** Tu as utilisé l\'ensemble de tes 5 numéros autorisés. Tu dois solliciter l\'accord d\'un responsable pour en obtenir d\'autres.' : 'Clique sur le bouton ci-dessous pour réserver un numéro.'}`)
     .setFooter({ text: 'AVA Agency • SMSPool Integration' });
 
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('smspool_get_number').setLabel('📱 Obtenir un numéro IG (USA)').setStyle(ButtonStyle.Danger)
-  );
+  const row = new ActionRowBuilder();
+  if (!isPrivileged && stats.isExceeded) {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId('sms_request_approval')
+        .setLabel("📩 Demander l'accord à un Manager / Fondateur")
+        .setStyle(ButtonStyle.Primary)
+    );
+  } else {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId('smspool_get_number')
+        .setLabel('📱 Obtenir un numéro IG (USA)')
+        .setStyle(ButtonStyle.Danger)
+    );
+  }
 
   await interaction.editReply({ embeds: [embed], components: [row] });
 }

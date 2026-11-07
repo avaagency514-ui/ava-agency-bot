@@ -91,6 +91,26 @@ function initDatabase() {
       channel_id      TEXT,
       created_at      TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS sms_quotas (
+      user_id       TEXT PRIMARY KEY,
+      max_numbers   INTEGER DEFAULT 5,
+      bonus_granted INTEGER DEFAULT 0,
+      updated_at    TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS sms_usage (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id       TEXT NOT NULL,
+      order_id      TEXT NOT NULL,
+      phonenumber   TEXT,
+      service       TEXT DEFAULT 'instagram',
+      status        TEXT DEFAULT 'active',
+      created_at    TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sms_usage_user ON sms_usage(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sms_usage_order ON sms_usage(order_id);
   `);
 
   try {

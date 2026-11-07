@@ -40,3 +40,4 @@ __pycache__/
 *.pyc
 desktop.ini
 thumbs.db
+startup_disabled_backup/

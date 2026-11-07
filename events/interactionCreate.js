@@ -284,6 +284,18 @@ module.exports = {
         const { handleSmspoolCancel } = require('../handlers/smspool');
         return handleSmspoolCancel(interaction, orderId);
       }
+
+      // Demande d'autorisation quota SMS par un VA
+      if (id === 'sms_request_approval') {
+        const { handleSmsApprovalRequest } = require('../services/smsQuotaService');
+        return handleSmsApprovalRequest(interaction, client);
+      }
+
+      // Décision d'approbation / refus quota SMS par Manager ou Fondateur
+      if (id.startsWith('sms_approve_grant_') || id.startsWith('sms_reject_grant_')) {
+        const { handleSmsApprovalButton } = require('../services/smsQuotaService');
+        return handleSmsApprovalButton(interaction, client);
+      }
     }
 
     // ─── Modals ─────────────────────────────────────────────────
